@@ -1,0 +1,3 @@
+#### Add Pushy 
+
+npx patch-package  --exclude "/build/.*" react-native-notifications
