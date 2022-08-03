@@ -128,6 +128,7 @@ const Channel = ({serverUrl, channelId, componentId, isCallsPluginEnabled, isCal
                 <ChannelHeader
                     channelId={channelId}
                     componentId={componentId}
+                    serverUrl={serverUrl}
                 />
                 {shouldRender &&
                 <>

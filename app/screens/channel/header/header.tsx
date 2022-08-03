@@ -3,9 +3,11 @@
 
 import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
-import {Keyboard, Platform, Text, View} from 'react-native';
+import {Alert, Keyboard, Platform, Text, View} from 'react-native';
+import {InAppBrowser} from 'react-native-inappbrowser-reborn';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
+import {logError, logInfo} from '@app/utils/log';
 import CompassIcon from '@components/compass_icon';
 import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
 import NavigationHeader from '@components/navigation_header';
@@ -13,9 +15,12 @@ import RoundedHeaderContext from '@components/rounded_header_context';
 import {General, Screens} from '@constants';
 import {QUICK_OPTIONS_HEIGHT} from '@constants/view';
 import {useTheme} from '@context/theme';
+import DatabaseManager from '@database/manager';
 import {useIsTablet} from '@hooks/device';
 import {useDefaultHeaderHeight} from '@hooks/header';
-import {bottomSheet, popTopScreen, showModal} from '@screens/navigation';
+import {getCommonSystemValues} from '@queries/servers/system';
+import {getTeamById} from '@queries/servers/team';
+import {bottomSheet, popTopScreen, showModal, dismissAllModals} from '@screens/navigation';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
@@ -36,6 +41,7 @@ type ChannelProps = {
     memberCount?: number;
     searchTerm: string;
     teamId: string;
+    serverUrl: string;
 };
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -63,7 +69,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
     isCustomStatusExpired, isOwnDirectMessage, memberCount,
-    searchTerm, teamId,
+    searchTerm, teamId, serverUrl,
 }: ChannelProps) => {
     const intl = useIntl();
     const isTablet = useIsTablet();
@@ -139,7 +145,55 @@ const ChannelHeader = ({
         });
     }, [channelId, channelType, isTablet, onTitlePress, theme]);
 
+    const onPressLinkToWebApp = useCallback(async () => {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const system = await getCommonSystemValues(database);
+        const team = await getTeamById(database, teamId);
+        if (!team) {
+            logError(`ChannelHeader: Can not find team id: ${teamId}`);
+            return;
+        }
+
+        const webAppUrl = `${serverUrl}/${team.name}/channels/${system.currentChannelId}`;
+
+        logInfo(`WebAppUrl:${webAppUrl}`);
+
+        try {
+            if (await InAppBrowser.isAvailable()) {
+                await InAppBrowser.open(webAppUrl, {
+                    forceCloseOnRedirection: false,
+                    showInRecents: true,
+                    browserPackage: Platform.select({android: 'com.android.chrome', default: ''}),
+                });
+            } else {
+                logError('ChannelHeader: InAppBrowser is not available');
+            }
+        } catch (error) {
+            const errtext = Platform.select({
+                android: `打开网页应用失败，请确认是否安装Chrome。如已安装，请联系系统管理员。\n错误信息:${(error as any).message}`,
+                default: `打开网页应用失败，请联系系统管理员。\n错误信息:${(error as any).message}`,
+            });
+            Alert.alert(
+                '错误',
+                errtext,
+                [{
+                    text: '确认',
+                    onPress: async () => {
+                        await dismissAllModals();
+                    },
+                }],
+                {cancelable: false},
+            );
+            logError(`ChannelHeader: InAppBrowser error ${(error as any).message}`);
+        }
+    }, [channelId, teamId, serverUrl]);
+
     const rightButtons: HeaderRightButton[] = useMemo(() => ([
+        {
+            iconName: 'link-variant',
+            onPress: onPressLinkToWebApp,
+            buttonType: 'opacity',
+        },
 
         // {
         //     iconName: 'magnify',

@@ -166,11 +166,19 @@ function loadTranslation(locale?: string) {
             case 'zh-CN':
                 loadChinesePolyfills();
                 translations = require('@assets/i18n/zh-CN.json');
+                translations = {
+                    ...en,
+                    ...translations,
+                };
                 momentData = require('moment/locale/zh-cn');
                 break;
             case 'zh-TW':
                 loadChinesePolyfills();
                 translations = require('@assets/i18n/zh-TW.json');
+                translations = {
+                    ...en,
+                    ...translations,
+                };
                 momentData = require('moment/locale/zh-tw');
                 break;
             default:
