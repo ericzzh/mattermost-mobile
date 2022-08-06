@@ -11,6 +11,7 @@ import {logError, logInfo} from '@app/utils/log';
 import CompassIcon from '@components/compass_icon';
 import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
 import NavigationHeader from '@components/navigation_header';
+import {ITEM_HEIGHT} from '@components/option_item';
 import RoundedHeaderContext from '@components/rounded_header_context';
 import {General, Screens} from '@constants';
 import {QUICK_OPTIONS_HEIGHT} from '@constants/view';
@@ -21,6 +22,7 @@ import {useDefaultHeaderHeight} from '@hooks/header';
 import {getCommonSystemValues} from '@queries/servers/system';
 import {getTeamById} from '@queries/servers/team';
 import {bottomSheet, popTopScreen, showModal, dismissAllModals} from '@screens/navigation';
+import {isTypeDMorGM} from '@utils/channel';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
@@ -42,6 +44,7 @@ type ChannelProps = {
     searchTerm: string;
     teamId: string;
     serverUrl: string;
+    callsEnabled: boolean;
 };
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -69,7 +72,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
     isCustomStatusExpired, isOwnDirectMessage, memberCount,
-    searchTerm, teamId, serverUrl,
+    searchTerm, teamId, callsEnabled, serverUrl,
 }: ChannelProps) => {
     const intl = useIntl();
     const isTablet = useIsTablet();
@@ -78,6 +81,7 @@ const ChannelHeader = ({
     const defaultHeight = useDefaultHeaderHeight();
     const insets = useSafeAreaInsets();
 
+    const isDMorGM = isTypeDMorGM(channelType);
     const contextStyle = useMemo(() => ({
         top: defaultHeight + insets.top,
     }), [defaultHeight, insets.top]);
@@ -130,20 +134,27 @@ const ChannelHeader = ({
             return;
         }
 
+        // When calls is enabled, we need space to move the "Copy Link" from a button to an option
+        const height = QUICK_OPTIONS_HEIGHT + (callsEnabled && !isDMorGM ? ITEM_HEIGHT : 0);
+
         const renderContent = () => {
             return (
-                <QuickActions channelId={channelId}/>
+                <QuickActions
+                    channelId={channelId}
+                    callsEnabled={callsEnabled}
+                    isDMorGM={isDMorGM}
+                />
             );
         };
 
         bottomSheet({
             title: '',
             renderContent,
-            snapPoints: [QUICK_OPTIONS_HEIGHT, 10],
+            snapPoints: [height, 10],
             theme,
             closeButtonId: 'close-channel-quick-actions',
         });
-    }, [channelId, channelType, isTablet, onTitlePress, theme]);
+    }, [channelId, isDMorGM, isTablet, onTitlePress, theme, callsEnabled]);
 
     const onPressLinkToWebApp = useCallback(async () => {
         const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
