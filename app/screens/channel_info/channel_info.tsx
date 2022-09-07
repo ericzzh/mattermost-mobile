@@ -5,7 +5,7 @@ import React, {useCallback} from 'react';
 import {ScrollView, View} from 'react-native';
 import {Edge, SafeAreaView} from 'react-native-safe-area-context';
 
-import ChannelInfoEnableCalls from '@app/products/calls/components/channel_info_enable_calls';
+import ChannelInfoEnableCalls from '@calls/components/channel_info_enable_calls';
 import ChannelActions from '@components/channel_actions';
 import {useTheme} from '@context/theme';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
@@ -24,6 +24,7 @@ type Props = {
     type?: ChannelType;
     canEnableDisableCalls: boolean;
     isCallsEnabledInChannel: boolean;
+    isCallsFeatureRestricted: boolean;
 }
 
 const edges: Edge[] = ['bottom', 'left', 'right'];
@@ -50,9 +51,11 @@ const ChannelInfo = ({
     type,
     canEnableDisableCalls,
     isCallsEnabledInChannel,
+    isCallsFeatureRestricted,
 }: Props) => {
     const theme = useTheme();
     const styles = getStyleSheet(theme);
+    const callsAvailable = isCallsEnabledInChannel && !isCallsFeatureRestricted;
 
     const onPressed = useCallback(() => {
         dismissModal({componentId});
@@ -70,7 +73,7 @@ const ChannelInfo = ({
                 bounces={true}
                 alwaysBounceVertical={false}
                 contentContainerStyle={styles.content}
-                testID='channel_info.scrollview'
+                testID='channel_info.scroll_view'
             >
                 <Title
                     channelId={channelId}
@@ -80,7 +83,7 @@ const ChannelInfo = ({
                     channelId={channelId}
                     inModal={true}
                     dismissChannelInfo={onPressed}
-                    callsEnabled={isCallsEnabledInChannel}
+                    callsEnabled={callsAvailable}
                     testID='channel_info.channel_actions'
                 />
                 <Extra channelId={channelId}/>
@@ -88,10 +91,10 @@ const ChannelInfo = ({
                 <Options
                     channelId={channelId}
                     type={type}
-                    callsEnabled={isCallsEnabledInChannel}
+                    callsEnabled={callsAvailable}
                 />
                 <View style={styles.separator}/>
-                {canEnableDisableCalls &&
+                {canEnableDisableCalls && !isCallsFeatureRestricted &&
                     <>
                         <ChannelInfoEnableCalls
                             channelId={channelId}

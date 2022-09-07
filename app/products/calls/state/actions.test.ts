@@ -19,12 +19,11 @@ import {
     userJoinedCall,
     userLeftCall,
     callStarted,
-    callFinished,
+    callEnded,
     setUserMuted,
     setCallScreenOn,
     setCallScreenOff,
     setRaisedHand,
-    myselfJoinedCall,
     myselfLeftCall,
     setChannelEnabled,
     setScreenShareURL,
@@ -32,6 +31,7 @@ import {
     setConfig,
     setPluginEnabled,
 } from '@calls/state/actions';
+import {License} from '@constants';
 
 import {CallsState, CurrentCall, DefaultCallsConfig, DefaultCallsState} from '../types/calls';
 
@@ -44,6 +44,7 @@ const call1 = {
     startTime: 123,
     screenOn: '',
     threadId: 'thread-1',
+    ownerId: 'user-1',
 };
 const call2 = {
     participants: {
@@ -54,6 +55,7 @@ const call2 = {
     startTime: 123,
     screenOn: '',
     threadId: 'thread-2',
+    ownerId: 'user-3',
 };
 const call3 = {
     participants: {
@@ -64,6 +66,7 @@ const call3 = {
     startTime: 123,
     screenOn: '',
     threadId: 'thread-3',
+    ownerId: 'user-5',
 };
 
 describe('useCallsState', () => {
@@ -165,6 +168,7 @@ describe('useCallsState', () => {
                 startTime: 123,
                 screenOn: '',
                 threadId: 'thread-1',
+                ownerId: 'user-1',
             },
         };
         const expectedChannelsWithCallsState = initialChannelsWithCallsState;
@@ -221,6 +225,7 @@ describe('useCallsState', () => {
                 startTime: 123,
                 screenOn: '',
                 threadId: 'thread-1',
+                ownerId: 'user-1',
             },
         };
         const expectedChannelsWithCallsState = initialChannelsWithCallsState;
@@ -269,8 +274,7 @@ describe('useCallsState', () => {
         assert.deepEqual(result.current[2], null);
     });
 
-    // TODO: needs to be changed to callEnd when that ws event is implemented
-    it('callFinished', () => {
+    it('callEnded', () => {
         const initialCallsState = {
             ...DefaultCallsState,
             calls: {'channel-1': call1, 'channel-2': call2},
@@ -295,7 +299,7 @@ describe('useCallsState', () => {
         assert.deepEqual(result.current[2], null);
 
         // test
-        act(() => callFinished('server1', 'channel-1'));
+        act(() => callEnded('server1', 'channel-1'));
         assert.deepEqual(result.current[0], expectedCallsState);
         assert.deepEqual(result.current[1], expectedChannelsWithCallsState);
         assert.deepEqual(result.current[2], null);
@@ -409,6 +413,7 @@ describe('useCallsState', () => {
                 startTime: 123,
                 screenOn: false,
                 threadId: 'thread-1',
+                ownerId: 'user-1',
             },
         };
         const initialCurrentCallState = {
@@ -455,12 +460,25 @@ describe('useCallsState', () => {
             myUserId: 'myUserId',
             calls: {'channel-1': call1, 'channel-2': call2},
         };
+        const newCall1 = {
+            ...call1,
+            participants: {
+                ...call1.participants,
+                myUserId: {id: 'myUserId', muted: true, raisedHand: 0},
+            },
+        };
+        const expectedCallsState = {
+            ...initialCallsState,
+            calls: {...initialCallsState.calls,
+                'channel-1': newCall1,
+            },
+        };
         const expectedCurrentCallState = {
             serverUrl: 'server1',
             myUserId: 'myUserId',
             screenShareURL: '',
             speakerphoneOn: false,
-            ...call1,
+            ...newCall1,
         } as CurrentCall;
 
         // setup
@@ -472,10 +490,14 @@ describe('useCallsState', () => {
         assert.deepEqual(result.current[1], null);
 
         // test
-        act(() => myselfJoinedCall('server1', 'channel-1'));
-        assert.deepEqual(result.current[0], initialCallsState);
+        act(() => userJoinedCall('server1', 'channel-1', 'myUserId'));
+        assert.deepEqual(result.current[0], expectedCallsState);
         assert.deepEqual(result.current[1], expectedCurrentCallState);
-        act(() => myselfLeftCall());
+
+        act(() => {
+            myselfLeftCall();
+            userLeftCall('server1', 'channel-1', 'myUserId');
+        });
         assert.deepEqual(result.current[0], initialCallsState);
         assert.deepEqual(result.current[1], null);
     });
@@ -538,13 +560,14 @@ describe('useCallsState', () => {
         assert.deepEqual(result.current[1], null);
 
         // test joining a call and setting url:
-        act(() => myselfJoinedCall('server1', 'channel-1'));
+        act(() => userJoinedCall('server1', 'channel-1', 'myUserId'));
         assert.deepEqual((result.current[1] as CurrentCall | null)?.screenShareURL, '');
         act(() => setScreenShareURL('testUrl'));
         assert.deepEqual((result.current[1] as CurrentCall | null)?.screenShareURL, 'testUrl');
 
         act(() => {
             myselfLeftCall();
+            userLeftCall('server1', 'channel-1', 'myUserId');
             setScreenShareURL('test');
         });
         assert.deepEqual(result.current[0], initialCallsState);
@@ -557,6 +580,19 @@ describe('useCallsState', () => {
             myUserId: 'myUserId',
             calls: {'channel-1': call1, 'channel-2': call2},
         };
+        const newCall1 = {
+            ...call1,
+            participants: {
+                ...call1.participants,
+                myUserId: {id: 'myUserId', muted: true, raisedHand: 0},
+            },
+        };
+        const expectedCallsState = {
+            ...initialCallsState,
+            calls: {...initialCallsState.calls,
+                'channel-1': newCall1,
+            },
+        };
 
         // setup
         const {result} = renderHook(() => {
@@ -567,27 +603,38 @@ describe('useCallsState', () => {
         assert.deepEqual(result.current[1], null);
 
         // test
-        act(() => myselfJoinedCall('server1', 'channel-1'));
+        act(() => userJoinedCall('server1', 'channel-1', 'myUserId'));
         assert.deepEqual((result.current[1] as CurrentCall | null)?.speakerphoneOn, false);
         act(() => setSpeakerPhone(true));
         assert.deepEqual((result.current[1] as CurrentCall | null)?.speakerphoneOn, true);
         act(() => setSpeakerPhone(false));
         assert.deepEqual((result.current[1] as CurrentCall | null)?.speakerphoneOn, false);
-        assert.deepEqual(result.current[0], initialCallsState);
+        assert.deepEqual(result.current[0], expectedCallsState);
         act(() => {
             myselfLeftCall();
             setSpeakerPhone(true);
         });
-        assert.deepEqual(result.current[0], initialCallsState);
+        assert.deepEqual(result.current[0], expectedCallsState);
         assert.deepEqual(result.current[1], null);
     });
 
     it('config', () => {
         const newConfig = {
-            ICEServers: ['google.com'],
+            ICEServers: [],
+            ICEServersConfigs: [
+                {
+                    urls: ['stun:stun.example.com:3478'],
+                },
+                {
+                    urls: ['turn:turn.example.com:3478'],
+                },
+            ],
             AllowEnableCalls: true,
             DefaultEnabled: true,
+            NeedsTURNCredentials: false,
             last_retrieved_at: 123,
+            sku_short_name: License.SKU_SHORT_NAME.Professional,
+            MaxCallParticipants: 8,
         };
 
         // setup

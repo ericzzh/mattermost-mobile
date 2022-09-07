@@ -44,7 +44,8 @@ type ChannelProps = {
     searchTerm: string;
     teamId: string;
     serverUrl: string;
-    callsEnabled: boolean;
+    callsEnabledInChannel: boolean;
+    callsFeatureRestricted: boolean;
 };
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -72,7 +73,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
     isCustomStatusExpired, isOwnDirectMessage, memberCount,
-    searchTerm, teamId, callsEnabled, serverUrl,
+    searchTerm, teamId, callsEnabledInChannel, callsFeatureRestricted, serverUrl,
 }: ChannelProps) => {
     const intl = useIntl();
     const isTablet = useIsTablet();
@@ -80,6 +81,7 @@ const ChannelHeader = ({
     const styles = getStyleSheet(theme);
     const defaultHeight = useDefaultHeaderHeight();
     const insets = useSafeAreaInsets();
+    const callsAvailable = callsEnabledInChannel && !callsFeatureRestricted;
 
     const isDMorGM = isTypeDMorGM(channelType);
     const contextStyle = useMemo(() => ({
@@ -135,13 +137,13 @@ const ChannelHeader = ({
         }
 
         // When calls is enabled, we need space to move the "Copy Link" from a button to an option
-        const height = QUICK_OPTIONS_HEIGHT + (callsEnabled && !isDMorGM ? ITEM_HEIGHT : 0);
+        const height = QUICK_OPTIONS_HEIGHT + (callsAvailable && !isDMorGM ? ITEM_HEIGHT : 0);
 
         const renderContent = () => {
             return (
                 <QuickActions
                     channelId={channelId}
-                    callsEnabled={callsEnabled}
+                    callsEnabled={callsAvailable}
                     isDMorGM={isDMorGM}
                 />
             );
@@ -154,7 +156,7 @@ const ChannelHeader = ({
             theme,
             closeButtonId: 'close-channel-quick-actions',
         });
-    }, [channelId, isDMorGM, isTablet, onTitlePress, theme, callsEnabled]);
+    }, [channelId, isDMorGM, isTablet, onTitlePress, theme, callsAvailable]);
 
     const onPressLinkToWebApp = useCallback(async () => {
         const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
@@ -251,6 +253,7 @@ const ChannelHeader = ({
                         customStatus={customStatus}
                         emojiSize={13}
                         style={styles.customStatusEmoji}
+                        testID='channel_header'
                     />
                     }
                     <View style={styles.customStatusText}>
@@ -258,6 +261,7 @@ const ChannelHeader = ({
                             numberOfLines={1}
                             ellipsizeMode='tail'
                             style={styles.subtitle}
+                            testID='channel_header.custom_status.custom_status_text'
                         >
                             {customStatus.text}
                         </Text>

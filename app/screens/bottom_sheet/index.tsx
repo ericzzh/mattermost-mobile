@@ -27,6 +27,8 @@ type SlideUpPanelProps = {
     testID?: string;
 }
 
+export const PADDING_TOP_MOBILE = 20;
+
 const BottomSheet = ({closeButtonId, componentId, initialSnapIndex = 0, renderContent, snapPoints = ['90%', '50%', 50], testID}: SlideUpPanelProps) => {
     const sheetRef = useRef<RNBottomSheet>(null);
     const dimensions = useWindowDimensions();
@@ -60,6 +62,17 @@ const BottomSheet = ({closeButtonId, componentId, initialSnapIndex = 0, renderCo
         } else {
             close();
         }
+    }, []);
+
+    const handleCloseEnd = useCallback(() => {
+        if (firstRun.current) {
+            backdropOpacity.value = 0;
+            setTimeout(close, 250);
+        }
+    }, []);
+
+    const handleOpenStart = useCallback(() => {
+        backdropOpacity.value = 1;
     }, []);
 
     useAndroidHardwareBackHandler(componentId, handleClose);
@@ -116,7 +129,7 @@ const BottomSheet = ({closeButtonId, componentId, initialSnapIndex = 0, renderCo
                 backgroundColor: theme.centerChannelBg,
                 opacity: 1,
                 paddingHorizontal: 20,
-                paddingTop: isTablet ? 0 : 20,
+                paddingTop: isTablet ? 0 : PADDING_TOP_MOBILE,
                 height: '100%',
                 width: isTablet ? '100%' : Math.min(dimensions.width, 450),
                 alignSelf: 'center',
@@ -145,13 +158,8 @@ const BottomSheet = ({closeButtonId, componentId, initialSnapIndex = 0, renderCo
                 borderRadius={10}
                 initialSnap={snapPoints.length - 1}
                 renderContent={renderContainerContent}
-                onCloseEnd={close}
-                onCloseStart={() => {
-                    backdropOpacity.value = 0;
-                }}
-                onOpenEnd={() => {
-                    backdropOpacity.value = 1;
-                }}
+                onCloseEnd={handleCloseEnd}
+                onOpenStart={handleOpenStart}
                 enabledBottomInitialAnimation={false}
                 renderHeader={Indicator}
                 enabledContentTapInteraction={false}

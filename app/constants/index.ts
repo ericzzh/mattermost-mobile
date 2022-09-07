@@ -3,6 +3,7 @@
 
 import ActionType from './action_type';
 import Apps from './apps';
+import Calls from './calls';
 import Categories from './categories';
 import Channel from './channel';
 import Config from './config';
@@ -15,6 +16,8 @@ import Events from './events';
 import Files from './files';
 import General from './general';
 import Integrations from './integrations';
+import Launch from './launch';
+import License from './license';
 import List from './list';
 import Navigation from './navigation';
 import Network from './network';
@@ -36,6 +39,7 @@ import WebsocketEvents from './websocket';
 export {
     ActionType,
     Apps,
+    Calls,
     Categories,
     Channel,
     Config,
@@ -48,6 +52,8 @@ export {
     Files,
     General,
     Integrations,
+    Launch,
+    License,
     List,
     Navigation,
     Network,

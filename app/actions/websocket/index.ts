@@ -11,11 +11,19 @@ import {fetchStatusByIds} from '@actions/remote/user';
 import {loadConfigAndCalls} from '@calls/actions/calls';
 import {
     handleCallChannelDisabled,
-    handleCallChannelEnabled, handleCallScreenOff, handleCallScreenOn, handleCallStarted,
+    handleCallChannelEnabled,
+    handleCallEnded,
+    handleCallScreenOff,
+    handleCallScreenOn,
+    handleCallStarted,
     handleCallUserConnected,
     handleCallUserDisconnected,
-    handleCallUserMuted, handleCallUserRaiseHand,
-    handleCallUserUnmuted, handleCallUserUnraiseHand, handleCallUserVoiceOff, handleCallUserVoiceOn,
+    handleCallUserMuted,
+    handleCallUserRaiseHand,
+    handleCallUserUnmuted,
+    handleCallUserUnraiseHand,
+    handleCallUserVoiceOff,
+    handleCallUserVoiceOn,
 } from '@calls/connection/websocket_event_handlers';
 import {isSupportedServerCalls} from '@calls/utils';
 import {Events, Screens, WebsocketEvents} from '@constants';
@@ -49,7 +57,7 @@ import {handleChannelConvertedEvent, handleChannelCreatedEvent,
     handleDirectAddedEvent,
     handleUserAddedToChannelEvent,
     handleUserRemovedFromChannelEvent} from './channel';
-import {handleGroupMemberAddEvent, handleGroupMemberDeleteEvent, handleGroupReceivedEvent} from './group';
+import {handleGroupMemberAddEvent, handleGroupMemberDeleteEvent, handleGroupReceivedEvent, handleGroupTeamAssociatedEvent, handleGroupTeamDissociateEvent} from './group';
 import {handleOpenDialogEvent} from './integrations';
 import {handleNewPostEvent, handlePostDeleted, handlePostEdited, handlePostUnread} from './posts';
 import {handlePreferenceChangedEvent, handlePreferencesChangedEvent, handlePreferencesDeletedEvent} from './preferences';
@@ -168,10 +176,6 @@ async function doReconnectRest(serverUrl: string, operator: ServerDataOperator, 
     const {locale: currentUserLocale} = (await getCurrentUser(database))!;
     await deferredAppEntryActions(serverUrl, lastDisconnectedAt, currentUserId, currentUserLocale, prefData.preferences, config, license, teamData, chData, initialTeamId, switchedToChannel ? initialChannelId : undefined);
 
-    if (isSupportedServerCalls(config?.Version)) {
-        loadConfigAndCalls(serverUrl, currentUserId);
-    }
-
     // https://mattermost.atlassian.net/browse/MM-41520
 }
 
@@ -199,6 +203,11 @@ async function doReconnect(serverUrl: string) {
         await graphQLCommon(serverUrl, true, system.currentTeamId, system.currentChannelId);
     } else {
         await doReconnectRest(serverUrl, operator, system.currentTeamId, system.currentUserId, config, license, lastDisconnectedAt);
+    }
+
+    // Calls is not set up for GraphQL yet
+    if (isSupportedServerCalls(config?.Version)) {
+        loadConfigAndCalls(serverUrl, system.currentUserId);
     }
 }
 
@@ -402,6 +411,9 @@ export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
         case WebsocketEvents.CALLS_USER_UNRAISE_HAND:
             handleCallUserUnraiseHand(serverUrl, msg);
             break;
+        case WebsocketEvents.CALLS_CALL_END:
+            handleCallEnded(serverUrl, msg);
+            break;
 
         case WebsocketEvents.GROUP_RECEIVED:
             handleGroupReceivedEvent(serverUrl, msg);
@@ -411,6 +423,16 @@ export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
             break;
         case WebsocketEvents.GROUP_MEMBER_DELETE:
             handleGroupMemberDeleteEvent(serverUrl, msg);
+            break;
+        case WebsocketEvents.GROUP_ASSOCIATED_TO_TEAM:
+            handleGroupTeamAssociatedEvent(serverUrl, msg);
+            break;
+        case WebsocketEvents.GROUP_DISSOCIATED_TO_TEAM:
+            handleGroupTeamDissociateEvent(serverUrl, msg);
+            break;
+        case WebsocketEvents.GROUP_ASSOCIATED_TO_CHANNEL:
+            break;
+        case WebsocketEvents.GROUP_DISSOCIATED_TO_CHANNEL:
             break;
     }
 }
