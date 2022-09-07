@@ -144,7 +144,6 @@ const Channel = ({
                 onLayout={onLayout}
             >
                 <ChannelHeader
-                    serverUrl={serverUrl}
                     channelId={channelId}
                     componentId={componentId}
                     serverUrl={serverUrl}
