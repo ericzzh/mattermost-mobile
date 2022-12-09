@@ -10,8 +10,8 @@ import {MyPreferencesRequest, fetchMyPreferences} from '@actions/remote/preferen
 import {fetchRoles} from '@actions/remote/role';
 import {fetchConfigAndLicense} from '@actions/remote/systems';
 import {fetchAllTeams, fetchMyTeams, fetchTeamsChannelsAndUnreadPosts, MyTeamsRequest} from '@actions/remote/team';
-import {fetchNewThreads} from '@actions/remote/thread';
-import {fetchMe, MyUserRequest, updateAllUsersSince} from '@actions/remote/user';
+import {syncTeamThreads} from '@actions/remote/thread';
+import {autoUpdateTimezone, fetchMe, MyUserRequest, updateAllUsersSince} from '@actions/remote/user';
 import {gqlAllChannels} from '@client/graphQL/entry';
 import {General, Preferences, Screens} from '@constants';
 import {SYSTEM_IDENTIFIERS} from '@constants/database';
@@ -22,12 +22,13 @@ import {selectDefaultTeam} from '@helpers/api/team';
 import {DEFAULT_LOCALE} from '@i18n';
 import NetworkManager from '@managers/network_manager';
 import {getDeviceToken} from '@queries/app/global';
-import {queryAllServers} from '@queries/app/servers';
+import {getAllServers} from '@queries/app/servers';
 import {prepareMyChannelsForTeam, queryAllChannelsForTeam, queryChannelsById} from '@queries/servers/channel';
 import {prepareModels, truncateCrtRelatedTables} from '@queries/servers/entry';
 import {getHasCRTChanged} from '@queries/servers/preference';
 import {getConfig, getCurrentUserId, getPushVerificationStatus, getWebSocketLastDisconnected} from '@queries/servers/system';
 import {deleteMyTeams, getAvailableTeamIds, getTeamChannelHistory, queryMyTeams, queryMyTeamsByIds, queryTeamsById} from '@queries/servers/team';
+import {getIsCRTEnabled} from '@queries/servers/thread';
 import {isDMorGM, sortChannelsByDisplayName} from '@utils/channel';
 import {getMemberChannelsFromGQLQuery, gqlToClientChannelMembership} from '@utils/graphql';
 import {logDebug} from '@utils/log';
@@ -64,6 +65,12 @@ export type EntryResponse = {
 
 const FETCH_MISSING_DM_TIMEOUT = 2500;
 export const FETCH_UNREADS_TIMEOUT = 2500;
+
+export const getRemoveTeamIds = async (database: Database, teamData: MyTeamsRequest) => {
+    const myTeams = await queryMyTeams(database).fetch();
+    const joinedTeams = new Set(teamData.memberships?.filter((m) => m.delete_at === 0).map((m) => m.team_id));
+    return myTeams.filter((m) => !joinedTeams.has(m.id)).map((m) => m.id);
+};
 
 export const teamsToRemove = async (serverUrl: string, removeTeamIds?: string[]) => {
     const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
@@ -139,7 +146,7 @@ export const fetchAppEntryData = async (serverUrl: string, sinceArg: number, ini
 
     const confReq = await fetchConfigAndLicense(serverUrl);
     const prefData = await fetchMyPreferences(serverUrl, fetchOnly);
-    const isCRTEnabled = Boolean(prefData.preferences && processIsCRTEnabled(prefData.preferences, confReq.config));
+    const isCRTEnabled = Boolean(prefData.preferences && processIsCRTEnabled(prefData.preferences, confReq.config?.CollapsedThreads, confReq.config?.FeatureFlagCollapsedThreads));
     if (prefData.preferences) {
         const crtToggled = await getHasCRTChanged(database, prefData.preferences);
         if (crtToggled) {
@@ -162,7 +169,6 @@ export const fetchAppEntryData = async (serverUrl: string, sinceArg: number, ini
         fetchMe(serverUrl, fetchOnly),
     ];
 
-    const removeTeamIds: string[] = [];
     const resolution = await Promise.all(promises);
     const [teamData, , meData] = resolution;
     let [, chData] = resolution;
@@ -179,10 +185,7 @@ export const fetchAppEntryData = async (serverUrl: string, sinceArg: number, ini
         }
     }
 
-    const removedFromTeam = teamData.memberships?.filter((m) => m.delete_at > 0);
-    if (removedFromTeam?.length) {
-        removeTeamIds.push(...removedFromTeam.map((m) => m.team_id));
-    }
+    const removeTeamIds = await getRemoveTeamIds(database, teamData);
 
     let data: AppEntryData = {
         initialTeamId,
@@ -195,10 +198,6 @@ export const fetchAppEntryData = async (serverUrl: string, sinceArg: number, ini
     };
 
     if (teamData.teams?.length === 0 && !teamData.error) {
-        // User is no longer a member of any team
-        const myTeams = await queryMyTeams(database).fetch();
-        removeTeamIds.push(...(myTeams.map((myTeam) => myTeam.id) || []));
-
         return {
             ...data,
             initialTeamId: '',
@@ -308,7 +307,7 @@ export async function entryInitialChannelId(database: Database, requestedChannel
 
 export async function restDeferredAppEntryActions(
     serverUrl: string, since: number, currentUserId: string, currentUserLocale: string, preferences: PreferenceType[] | undefined,
-    config: ClientConfig, license: ClientLicense, teamData: MyTeamsRequest, chData: MyChannelsRequest | undefined,
+    config: ClientConfig, license: ClientLicense | undefined, teamData: MyTeamsRequest, chData: MyChannelsRequest | undefined,
     initialTeamId?: string, initialChannelId?: string) {
     // defer sidebar DM & GM profiles
     let channelsToFetchProfiles: Set<Channel>|undefined;
@@ -327,16 +326,16 @@ export async function restDeferredAppEntryActions(
         fetchTeamsChannelsAndUnreadPosts(serverUrl, since, teamData.teams, teamData.memberships, initialTeamId);
     }
 
-    if (preferences && processIsCRTEnabled(preferences, config)) {
+    if (preferences && processIsCRTEnabled(preferences, config.CollapsedThreads, config.FeatureFlagCollapsedThreads)) {
         if (initialTeamId) {
-            await fetchNewThreads(serverUrl, initialTeamId, false);
+            await syncTeamThreads(serverUrl, initialTeamId);
         }
 
         if (teamData.teams?.length) {
             for await (const team of teamData.teams) {
                 if (team.id !== initialTeamId) {
                     // need to await here since GM/DM threads in different teams overlap
-                    await fetchNewThreads(serverUrl, team.id, false);
+                    await syncTeamThreads(serverUrl, team.id);
                 }
             }
         }
@@ -350,7 +349,7 @@ export async function restDeferredAppEntryActions(
 
     setTimeout(async () => {
         if (channelsToFetchProfiles?.size) {
-            const teammateDisplayNameSetting = getTeammateNameDisplaySetting(preferences || [], config, license);
+            const teammateDisplayNameSetting = getTeammateNameDisplaySetting(preferences || [], config.LockTeammateNameDisplay, config.TeammateNameDisplay, license);
             fetchMissingDirectChannelsInfo(serverUrl, Array.from(channelsToFetchProfiles), currentUserLocale, teammateDisplayNameSetting, currentUserId);
         }
     }, FETCH_MISSING_DM_TIMEOUT);
@@ -364,26 +363,21 @@ export const registerDeviceToken = async (serverUrl: string) => {
         return {error};
     }
 
-    const appDatabase = DatabaseManager.appDatabase?.database;
-    if (appDatabase) {
-        const deviceToken = await getDeviceToken(appDatabase);
-        if (deviceToken) {
-            client.attachDevice(deviceToken);
-        }
+    const deviceToken = await getDeviceToken();
+    if (deviceToken) {
+        client.attachDevice(deviceToken);
     }
 
     return {error: undefined};
 };
 
 export const syncOtherServers = async (serverUrl: string) => {
-    const database = DatabaseManager.appDatabase?.database;
-    if (database) {
-        const servers = await queryAllServers(database);
-        for (const server of servers) {
-            if (server.url !== serverUrl && server.lastActiveAt > 0) {
-                registerDeviceToken(server.url);
-                syncAllChannelMembersAndThreads(server.url);
-            }
+    const servers = await getAllServers();
+    for (const server of servers) {
+        if (server.url !== serverUrl && server.lastActiveAt > 0) {
+            registerDeviceToken(server.url);
+            syncAllChannelMembersAndThreads(server.url);
+            autoUpdateTimezone(server.url);
         }
     }
 };
@@ -413,6 +407,8 @@ const graphQLSyncAllChannelMembers = async (serverUrl: string) => {
         return 'Server database not found';
     }
 
+    const {database} = operator;
+
     const response = await gqlAllChannels(serverUrl);
     if ('error' in response) {
         return response.error;
@@ -422,7 +418,7 @@ const graphQLSyncAllChannelMembers = async (serverUrl: string) => {
         return response.errors[0].message;
     }
 
-    const userId = await getCurrentUserId(operator.database);
+    const userId = await getCurrentUserId(database);
 
     const channels = getMemberChannelsFromGQLQuery(response.data);
     const memberships = response.data.channelMembers?.map((m) => gqlToClientChannelMembership(m, userId));
@@ -431,7 +427,16 @@ const graphQLSyncAllChannelMembers = async (serverUrl: string) => {
         const modelPromises = await prepareMyChannelsForTeam(operator, '', channels, memberships, undefined, true);
         const models = (await Promise.all(modelPromises)).flat();
         if (models.length) {
-            operator.batchRecords(models);
+            await operator.batchRecords(models);
+        }
+    }
+
+    const isCRTEnabled = await getIsCRTEnabled(database);
+    if (isCRTEnabled) {
+        const myTeams = await queryMyTeams(operator.database).fetch();
+        for await (const myTeam of myTeams) {
+            // need to await here since GM/DM threads in different teams overlap
+            await syncTeamThreads(serverUrl, myTeam.id);
         }
     }
 
@@ -452,11 +457,12 @@ const restSyncAllChannelMembers = async (serverUrl: string) => {
         const config = await client.getClientConfigOld();
 
         let excludeDirect = false;
-        for (const myTeam of myTeams) {
+        for await (const myTeam of myTeams) {
             fetchMyChannelsForTeam(serverUrl, myTeam.id, false, 0, false, excludeDirect);
             excludeDirect = true;
-            if (preferences && processIsCRTEnabled(preferences, config)) {
-                fetchNewThreads(serverUrl, myTeam.id, false);
+            if (preferences && processIsCRTEnabled(preferences, config.CollapsedThreads, config.FeatureFlagCollapsedThreads)) {
+                // need to await here since GM/DM threads in different teams overlap
+                await syncTeamThreads(serverUrl, myTeam.id);
             }
         }
     } catch {
@@ -480,12 +486,7 @@ export async function verifyPushProxy(serverUrl: string) {
         return;
     }
 
-    const appDatabase = DatabaseManager.appDatabase?.database;
-    if (!appDatabase) {
-        return;
-    }
-
-    const deviceId = await getDeviceToken(appDatabase);
+    const deviceId = await getDeviceToken();
     if (!deviceId) {
         return;
     }

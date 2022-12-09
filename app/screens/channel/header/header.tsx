@@ -3,9 +3,10 @@
 
 import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
-import {Alert, Keyboard, Platform, Text, View} from 'react-native';
+import {Alert} from 'react-native';
 import {InAppBrowser} from 'react-native-inappbrowser-reborn';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {Keyboard, Platform, Text, View} from 'react-native';
 
 import {logError, logInfo} from '@app/utils/log';
 import CompassIcon from '@components/compass_icon';
@@ -36,6 +37,7 @@ type ChannelProps = {
     channelId: string;
     channelType: ChannelType;
     customStatus?: UserCustomStatus;
+    isCustomStatusEnabled: boolean;
     isCustomStatusExpired: boolean;
     componentId?: string;
     displayName: string;
@@ -72,7 +74,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
-    isCustomStatusExpired, isOwnDirectMessage, memberCount,
+    isCustomStatusEnabled, isCustomStatusExpired, isOwnDirectMessage, memberCount,
     searchTerm, teamId, callsEnabledInChannel, callsFeatureRestricted, serverUrl,
 }: ChannelProps) => {
     const intl = useIntl();
@@ -80,13 +82,12 @@ const ChannelHeader = ({
     const theme = useTheme();
     const styles = getStyleSheet(theme);
     const defaultHeight = useDefaultHeaderHeight();
-    const insets = useSafeAreaInsets();
     const callsAvailable = callsEnabledInChannel && !callsFeatureRestricted;
 
     const isDMorGM = isTypeDMorGM(channelType);
     const contextStyle = useMemo(() => ({
-        top: defaultHeight + insets.top,
-    }), [defaultHeight, insets.top]);
+        top: defaultHeight,
+    }), [defaultHeight]);
 
     const leftComponent = useMemo(() => {
         if (isTablet || !channelId || !teamId) {
@@ -248,7 +249,7 @@ const ChannelHeader = ({
         } else if (customStatus && customStatus.text) {
             return (
                 <View style={styles.customStatusContainer}>
-                    {Boolean(customStatus.emoji) &&
+                    {isCustomStatusEnabled && Boolean(customStatus.emoji) &&
                     <CustomStatusEmoji
                         customStatus={customStatus}
                         emojiSize={13}

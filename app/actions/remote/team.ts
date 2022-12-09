@@ -8,7 +8,7 @@ import {removeUserFromTeam as localRemoveUserFromTeam} from '@actions/local/team
 import {Events} from '@constants';
 import DatabaseManager from '@database/manager';
 import NetworkManager from '@managers/network_manager';
-import {prepareCategories, prepareCategoryChannels} from '@queries/servers/categories';
+import {prepareCategoriesAndCategoriesChannels} from '@queries/servers/categories';
 import {prepareMyChannelsForTeam, getDefaultChannelForTeam} from '@queries/servers/channel';
 import {prepareCommonSystemValues, getCurrentTeamId, getCurrentUserId} from '@queries/servers/system';
 import {addTeamToTeamHistory, prepareDeleteTeam, prepareMyTeams, getNthLastChannelFromTeam, queryTeamsById, syncTeamTable} from '@queries/servers/team';
@@ -55,6 +55,7 @@ export async function addUserToTeam(serverUrl: string, teamId: string, userId: s
 
     try {
         EphemeralStore.startAddingToTeam(teamId);
+        const team = await client.getTeam(teamId);
         const member = await client.addToTeam(teamId, userId);
 
         if (!fetchOnly) {
@@ -68,11 +69,11 @@ export async function addUserToTeam(serverUrl: string, teamId: string, userId: s
                 }];
 
                 const models: Model[] = (await Promise.all([
+                    operator.handleTeam({teams: [team], prepareRecordsOnly: true}),
                     operator.handleMyTeam({myTeams, prepareRecordsOnly: true}),
                     operator.handleTeamMemberships({teamMemberships: [member], prepareRecordsOnly: true}),
                     ...await prepareMyChannelsForTeam(operator, teamId, channels || [], channelMembers || []),
-                    prepareCategories(operator, categories || []),
-                    prepareCategoryChannels(operator, categories || []),
+                    prepareCategoriesAndCategoriesChannels(operator, categories || [], true),
                 ])).flat();
 
                 await operator.batchRecords(models);
@@ -247,6 +248,16 @@ export async function fetchTeamByName(serverUrl: string, teamName: string, fetch
         return {error};
     }
 }
+
+export const removeCurrentUserFromTeam = async (serverUrl: string, teamId: string, fetchOnly = false) => {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const userId = await getCurrentUserId(database);
+        return removeUserFromTeam(serverUrl, teamId, userId, fetchOnly);
+    } catch (error) {
+        return {error};
+    }
+};
 
 export const removeUserFromTeam = async (serverUrl: string, teamId: string, userId: string, fetchOnly = false) => {
     let client;

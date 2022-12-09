@@ -43,7 +43,7 @@ export function selectDefaultChannelForTeam<T extends Channel|ChannelModel>(chan
     let canIJoinPublicChannelsInTeam = false;
 
     if (roles) {
-        canIJoinPublicChannelsInTeam = hasPermission(roles, Permissions.JOIN_PUBLIC_CHANNELS, true);
+        canIJoinPublicChannelsInTeam = hasPermission(roles, Permissions.JOIN_PUBLIC_CHANNELS);
     }
     const defaultChannel = channels?.find((c) => c.name === General.DEFAULT_CHANNEL);
     const membershipIds = new Set(memberships.map((m) => m.channel_id));
@@ -141,4 +141,19 @@ export function compareNotifyProps(propsA: Partial<ChannelNotifyProps>, propsB: 
     }
 
     return true;
+}
+
+export function filterChannelsMatchingTerm(channels: Channel[], term: string): Channel[] {
+    const lowercasedTerm = term.toLowerCase();
+
+    return channels.filter((channel: Channel): boolean => {
+        if (!channel) {
+            return false;
+        }
+        const name = (channel.name || '').toLowerCase();
+        const displayName = (channel.display_name || '').toLowerCase();
+
+        return name.startsWith(lowercasedTerm) ||
+            displayName.startsWith(lowercasedTerm);
+    });
 }
