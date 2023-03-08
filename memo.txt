@@ -8,9 +8,15 @@ npx patch-package  --exclude "/build/.*" react-native-notifications
   replace:
   * %s/com.mattermost.rnbeta/com.ericzzh.mattermost.rnbeta/g
   * %s/UQ8HT4Q2XM/3G95N63PX8/g
-* maybe use mattermost's info list
+* use mattermost's info list: 
+  * - ios/NoitificationService/Info.plist
+    - ios/MattermostShare/Info.plist
+    - ios/Mattermost/Info.plist
+  * %s/com.mattermost.rnbeta/com.ericzzh.mattermost.rnbeta/g
 * delete podfile.lock
 * change 3 targets( mattermost, share, notification) build number to NNN00( last 2 zeros)
+* check the iCloud.com.mattermost.rnbeta should be iCloud.com.ericzzh.mattermost.rnbeta 
+* check the ios/Mattermost/Mattermost.entitlements, no com.mattermost.rnbeta
 
 DEVELOPMENT_TEAM = UQ8HT4Q2XM;
 DEVELOPMENT_TEAM = 3G95N63PX8;
