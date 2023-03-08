@@ -4,12 +4,14 @@
 import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
 import withObservables from '@nozbe/with-observables';
 import compose from 'lodash/fp/compose';
-import {combineLatest, of as of$} from 'rxjs';
-import {map, switchMap} from 'rxjs/operators';
+import {of as of$} from 'rxjs';
+import {switchMap} from 'rxjs/operators';
 
 import {queryChannelsById} from '@queries/servers/channel';
-import {observeLicense, observeConfigBooleanValue} from '@queries/servers/system';
+import {queryAllCustomEmojis} from '@queries/servers/custom_emoji';
+import {observeConfigBooleanValue, observeCanDownloadFiles} from '@queries/servers/system';
 import {observeCurrentUser} from '@queries/servers/user';
+import {mapCustomEmojiNames} from '@utils/emoji/helpers';
 import {getTimezone} from '@utils/user';
 
 import Results from './results';
@@ -24,21 +26,15 @@ const enhance = withObservables(['fileChannelIds'], ({database, fileChannelIds}:
     const fileChannels = queryChannelsById(database, fileChannelIds).observeWithColumns(['displayName']);
     const currentUser = observeCurrentUser(database);
 
-    const enableMobileFileDownload = observeConfigBooleanValue(database, 'EnableMobileFileDownload');
-
-    const complianceDisabled = observeLicense(database).pipe(
-        switchMap((lcs) => of$(lcs?.IsLicensed === 'false' || lcs?.Compliance === 'false')),
-    );
-
-    const canDownloadFiles = combineLatest([enableMobileFileDownload, complianceDisabled]).pipe(
-        map(([download, compliance]) => compliance || download),
-    );
-
     return {
+        appsEnabled: observeConfigBooleanValue(database, 'FeatureFlagAppsEnabled'),
         currentTimezone: currentUser.pipe((switchMap((user) => of$(getTimezone(user?.timezone))))),
+        customEmojiNames: queryAllCustomEmojis(database).observe().pipe(
+            switchMap((customEmojis) => of$(mapCustomEmojiNames(customEmojis))),
+        ),
         isTimezoneEnabled: observeConfigBooleanValue(database, 'ExperimentalTimezone'),
         fileChannels,
-        canDownloadFiles,
+        canDownloadFiles: observeCanDownloadFiles(database),
         publicLinkEnabled: observeConfigBooleanValue(database, 'EnablePublicLink'),
     };
 });

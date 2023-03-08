@@ -11,7 +11,6 @@ import {
     Navigation,
     NavigationButtonPressedEvent,
     NavigationComponent,
-    NavigationComponentProps,
     Options,
 } from 'react-native-navigation';
 
@@ -26,8 +25,10 @@ import ClearAfterMenuItem from './components/clear_after_menu_item';
 
 import type {WithDatabaseArgs} from '@typings/database/database';
 import type UserModel from '@typings/database/models/servers/user';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
-interface Props extends NavigationComponentProps {
+interface Props {
+    componentId: AvailableScreens;
     currentUser: UserModel;
     handleClearAfterClick: (duration: CustomStatusDuration, expiresAt: string) => void;
     initialDuration: CustomStatusDuration;
@@ -113,7 +114,7 @@ class ClearAfterModal extends NavigationComponent<Props, State> {
 
     onBackPress = () => {
         const {componentId} = this.props;
-        if (NavigationStore.getNavigationTopComponentId() === componentId) {
+        if (NavigationStore.getVisibleScreen() === componentId) {
             if (this.props.isModal) {
                 dismissModal({componentId});
             } else {

@@ -5,11 +5,13 @@ import {Database, Q, Query} from '@nozbe/watermelondb';
 import {combineLatest, of as of$, Observable} from 'rxjs';
 import {map, switchMap, distinctUntilChanged} from 'rxjs/operators';
 
-import {Preferences} from '@constants';
+import {Config} from '@constants';
 import {MM_TABLES} from '@constants/database';
-import {processIsCRTEnabled} from '@utils/thread';
+import {processIsCRTAllowed, processIsCRTEnabled} from '@utils/thread';
 
-import {queryPreferencesByCategoryAndName} from './preference';
+import {observeChannel} from './channel';
+import {observePost} from './post';
+import {queryDisplayNamePreferences} from './preference';
 import {getConfig, observeConfigValue} from './system';
 
 import type ServerDataOperator from '@database/operator/server_data_operator';
@@ -22,8 +24,8 @@ const {SERVER: {CHANNEL, POST, THREAD, THREADS_IN_TEAM, THREAD_PARTICIPANT, TEAM
 
 export const getIsCRTEnabled = async (database: Database): Promise<boolean> => {
     const config = await getConfig(database);
-    const preferences = await queryPreferencesByCategoryAndName(database, Preferences.CATEGORY_DISPLAY_SETTINGS).fetch();
-    return processIsCRTEnabled(preferences, config?.CollapsedThreads, config?.FeatureFlagCollapsedThreads);
+    const preferences = await queryDisplayNamePreferences(database).fetch();
+    return processIsCRTEnabled(preferences, config?.CollapsedThreads, config?.FeatureFlagCollapsedThreads, config?.Version);
 };
 
 export const getThreadById = async (database: Database, threadId: string) => {
@@ -40,13 +42,20 @@ export const getTeamThreadsSyncData = async (database: Database, teamId: string)
     return result?.[0];
 };
 
+export const observeCRTUserPreferenceDisplay = (database: Database) => {
+    return observeConfigValue(database, 'CollapsedThreads').pipe(
+        switchMap((value) => of$(processIsCRTAllowed(value) && value !== Config.ALWAYS_ON)),
+    );
+};
+
 export const observeIsCRTEnabled = (database: Database) => {
     const cfgValue = observeConfigValue(database, 'CollapsedThreads');
     const featureFlag = observeConfigValue(database, 'FeatureFlagCollapsedThreads');
-    const preferences = queryPreferencesByCategoryAndName(database, Preferences.CATEGORY_DISPLAY_SETTINGS).observeWithColumns(['value']);
-    return combineLatest([cfgValue, featureFlag, preferences]).pipe(
+    const version = observeConfigValue(database, 'Version');
+    const preferences = queryDisplayNamePreferences(database).observeWithColumns(['value']);
+    return combineLatest([cfgValue, featureFlag, preferences, version]).pipe(
         map(
-            ([cfgV, ff, prefs]) => processIsCRTEnabled(prefs, cfgV, ff),
+            ([cfgV, ff, prefs, ver]) => processIsCRTEnabled(prefs, cfgV, ff, ver),
         ),
         distinctUntilChanged(),
     );
@@ -60,13 +69,13 @@ export const observeThreadById = (database: Database, threadId: string) => {
     );
 };
 
-export const observeTeamIdByThread = (thread: ThreadModel) => {
-    return thread.post.observe().pipe(
+export const observeTeamIdByThread = (database: Database, thread: ThreadModel) => {
+    return observePost(database, thread.id).pipe(
         switchMap((post) => {
             if (!post) {
                 return of$(undefined);
             }
-            return post.channel.observe().pipe(
+            return observeChannel(database, post.channelId).pipe(
                 switchMap((channel) => of$(channel?.teamId)),
             );
         }),
@@ -140,7 +149,10 @@ export const prepareThreadsFromReceivedPosts = async (operator: ServerDataOperat
 };
 
 export const queryThreadsInTeam = (database: Database, teamId: string, onlyUnreads?: boolean, hasReplies?: boolean, isFollowing?: boolean, sort?: boolean, earliest?: number): Query<ThreadModel> => {
-    const query: Q.Clause[] = [];
+    const query: Q.Clause[] = [
+        Q.experimentalNestedJoin(POST, CHANNEL),
+        Q.on(POST, Q.on(CHANNEL, Q.where('delete_at', 0))),
+    ];
 
     if (isFollowing) {
         query.push(Q.where('is_following', true));
@@ -188,29 +200,33 @@ export const queryThreads = (database: Database, teamId?: string, onlyUnreads = 
         Q.where('reply_count', Q.gt(0)),
     ];
 
+    // Only get threads from available channel
+    const channelCondition: Q.Where[] = [
+        Q.where('delete_at', 0),
+    ];
+
     // If teamId is specified, only get threads in that team
     if (teamId) {
-        let condition: Q.Condition = Q.where('team_id', teamId);
-
         if (includeDmGm) {
-            condition = Q.or(
-                Q.where('team_id', teamId),
-                Q.where('team_id', ''),
+            channelCondition.push(
+                Q.or(
+                    Q.where('team_id', teamId),
+                    Q.where('team_id', ''),
+                ),
             );
+        } else {
+            channelCondition.push(Q.where('team_id', teamId));
         }
-
-        query.push(
-            Q.experimentalNestedJoin(POST, CHANNEL),
-            Q.on(POST, Q.on(CHANNEL, condition)),
-        );
     } else if (!includeDmGm) {
         // fetching all threads from all teams
         // excluding DM/GM channels
-        query.push(
-            Q.experimentalNestedJoin(POST, CHANNEL),
-            Q.on(POST, Q.on(CHANNEL, Q.where('team_id', Q.notEq('')))),
-        );
+        channelCondition.push(Q.where('team_id', Q.notEq('')));
     }
+
+    query.push(
+        Q.experimentalNestedJoin(POST, CHANNEL),
+        Q.on(POST, Q.on(CHANNEL, Q.and(...channelCondition))),
+    );
 
     if (onlyUnreads) {
         query.push(Q.where('unread_replies', Q.gt(0)));

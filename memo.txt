@@ -1,3 +1,20 @@
 #### Add Pushy 
 
 npx patch-package  --exclude "/build/.*" react-native-notifications
+
+#### build ios
+
+* use mattermost's ios/Mattermost.xcodeproj/project.pbxproj
+  replace:
+  * %s/com.mattermost.rnbeta/com.ericzzh.mattermost.rnbeta/g
+  * %s/UQ8HT4Q2XM/3G95N63PX8/g
+* maybe use mattermost's info list
+* delete podfile.lock
+* change 3 targets( mattermost, share, notification) build number to NNN00( last 2 zeros)
+
+DEVELOPMENT_TEAM = UQ8HT4Q2XM;
+DEVELOPMENT_TEAM = 3G95N63PX8;
+
+PRODUCT_BUNDLE_IDENTIFIER = com.mattermost.rnbeta;
+PRODUCT_BUNDLE_IDENTIFIER = com.ericzzh.mattermost.rnbeta;
+

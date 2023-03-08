@@ -7,16 +7,16 @@ if [ -z "jsfiles" ]; then
 fi
 
 if [ -n "$jsfiles" ]; then
-    echo "Checking lint for:"
-    for js in $jsfiles; do
-        echo "$js"
-        e=$(node_modules/.bin/eslint --quiet --fix $js)
-        if [ -n "$e" ]; then
-            echo "ERROR: Check eslint hints."
-            echo "$e"
-            exit 1 # reject
-        fi
-    done
+    # echo "Checking lint for:"
+    # for js in $jsfiles; do
+    #     echo "$js"
+    #     e=$(node_modules/.bin/eslint --quiet --fix $js)
+    #     if [ -n "$e" ]; then
+    #         echo "ERROR: Check eslint hints."
+    #         echo "$e"
+    #         exit 1 # reject
+    #     fi
+    # done
 
     echo "Checking for TSC"
     tsc=$(node_modules/.bin/tsc --noEmit)

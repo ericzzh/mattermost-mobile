@@ -79,6 +79,9 @@ Navigation.setLazyComponentRegistrator((screenName) => {
         case Screens.CHANNEL:
             screen = withServerDatabase(require('@screens/channel').default);
             break;
+        case Screens.CHANNEL_NOTIFICATION_PREFERENCES:
+            screen = withServerDatabase(require('@screens/channel_notification_preferences').default);
+            break;
         case Screens.CHANNEL_INFO:
             screen = withServerDatabase(require('@screens/channel_info').default);
             break;
@@ -127,6 +130,9 @@ Navigation.setLazyComponentRegistrator((screenName) => {
         case Screens.INTEGRATION_SELECTOR:
             screen = withServerDatabase(require('@screens/integration_selector').default);
             break;
+        case Screens.INVITE:
+            screen = withServerDatabase(require('@screens/invite').default);
+            break;
         case Screens.IN_APP_NOTIFICATION: {
             const notificationScreen = require('@screens/in_app_notification').default;
             Navigation.registerComponent(Screens.IN_APP_NOTIFICATION, () =>
@@ -137,11 +143,17 @@ Navigation.setLazyComponentRegistrator((screenName) => {
             );
             return;
         }
+        case Screens.JOIN_TEAM:
+            screen = withServerDatabase(require('@screens/join_team').default);
+            break;
         case Screens.LATEX:
             screen = withServerDatabase(require('@screens/latex').default);
             break;
         case Screens.LOGIN:
             screen = withIntl(require('@screens/login').default);
+            break;
+        case Screens.MANAGE_CHANNEL_MEMBERS:
+            screen = withServerDatabase(require('@screens/manage_channel_members').default);
             break;
         case Screens.MFA:
             screen = withIntl(require('@screens/mfa').default);
@@ -175,6 +187,9 @@ Navigation.setLazyComponentRegistrator((screenName) => {
             break;
         case Screens.SETTINGS_DISPLAY_CLOCK:
             screen = withServerDatabase(require('@screens/settings/display_clock').default);
+            break;
+        case Screens.SETTINGS_DISPLAY_CRT:
+            screen = withServerDatabase(require('@screens/settings/display_crt').default);
             break;
         case Screens.SETTINGS_DISPLAY_THEME:
             screen = withServerDatabase(require('@screens/settings/display_theme').default);

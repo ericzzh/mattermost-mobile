@@ -19,6 +19,7 @@ import Integrations from './integrations';
 import Launch from './launch';
 import License from './license';
 import List from './list';
+import Members from './members';
 import Navigation from './navigation';
 import Network from './network';
 import NotificationLevel from './notification_level';
@@ -34,6 +35,7 @@ import ServerErrors from './server_errors';
 import SnackBar from './snack_bar';
 import Sso from './sso';
 import SupportedServer from './supported_server';
+import Tutorial from './tutorial';
 import View from './view';
 import WebsocketEvents from './websocket';
 
@@ -56,6 +58,7 @@ export {
     Launch,
     License,
     List,
+    Members,
     Navigation,
     Network,
     NotificationLevel,
@@ -71,6 +74,7 @@ export {
     SnackBar,
     Sso,
     SupportedServer,
+    Tutorial,
     View,
     WebsocketEvents,
 };

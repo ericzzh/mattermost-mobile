@@ -7,6 +7,9 @@ import {useIntl} from 'react-intl';
 import {fetchStatusInBatch, updateMe} from '@actions/remote/user';
 import FloatingTextInput from '@components/floating_text_input_label';
 import FormattedText from '@components/formatted_text';
+import SettingContainer from '@components/settings/container';
+import SettingOption from '@components/settings/option';
+import SettingSeparator from '@components/settings/separator';
 import {General} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
@@ -18,11 +21,8 @@ import {changeOpacity, getKeyboardAppearanceFromTheme, makeStyleSheetFromTheme} 
 import {typography} from '@utils/typography';
 import {getNotificationProps} from '@utils/user';
 
-import SettingContainer from '../setting_container';
-import SettingOption from '../setting_option';
-import SettingSeparator from '../settings_separator';
-
 import type UserModel from '@typings/database/models/servers/user';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 const label = {
     id: t('notification_settings.auto_responder.message'),
@@ -57,7 +57,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 });
 
 type NotificationAutoResponderProps = {
-    componentId: string;
+    componentId: AvailableScreens;
     currentUser: UserModel;
 }
 const NotificationAutoResponder = ({currentUser, componentId}: NotificationAutoResponderProps) => {

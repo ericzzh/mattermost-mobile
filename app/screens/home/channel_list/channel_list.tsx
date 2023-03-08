@@ -10,7 +10,7 @@ import Animated, {useAnimatedStyle, withTiming} from 'react-native-reanimated';
 import {Edge, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import AnnouncementBanner from '@components/announcement_banner';
-import FreezeScreen from '@components/freeze_screen';
+import ConnectionBanner from '@components/connection_banner';
 import TeamSidebar from '@components/team_sidebar';
 import {Navigation as NavigationConstants, Screens} from '@constants';
 import {useServerUrl} from '@context/server';
@@ -32,7 +32,6 @@ type ChannelProps = {
     channelsCount: number;
     isCRTEnabled: boolean;
     teamsCount: number;
-    time?: number;
     isLicensed: boolean;
     showToS: boolean;
     launchType: LaunchType;
@@ -77,7 +76,7 @@ const ChannelListScreen = (props: ChannelProps) => {
     const canAddOtherServers = managedConfig?.allowOtherServers !== 'false';
 
     const handleBackPress = useCallback(() => {
-        const isHomeScreen = NavigationStore.getNavigationTopComponentId() === Screens.HOME;
+        const isHomeScreen = NavigationStore.getVisibleScreen() === Screens.HOME;
         const homeTab = NavigationStore.getVisibleTab() === Screens.HOME;
         const focused = navigation.isFocused() && isHomeScreen && homeTab;
 
@@ -124,7 +123,7 @@ const ChannelListScreen = (props: ChannelProps) => {
 
     const top = useAnimatedStyle(() => {
         return {height: insets.top, backgroundColor: theme.sidebarBg};
-    }, [theme]);
+    }, [theme, insets.top]);
 
     useEffect(() => {
         if (!props.teamsCount) {
@@ -159,13 +158,14 @@ const ChannelListScreen = (props: ChannelProps) => {
     }, []);
 
     return (
-        <FreezeScreen freeze={!isFocused}>
+        <>
             <Animated.View style={top}/>
             <SafeAreaView
                 style={styles.flex}
                 edges={edges}
                 testID='channel_list.screen'
             >
+                <ConnectionBanner/>
                 {props.isLicensed &&
                     <AnnouncementBanner/>
                 }
@@ -181,7 +181,6 @@ const ChannelListScreen = (props: ChannelProps) => {
                         <CategoriesList
                             iconPad={canAddOtherServers && props.teamsCount <= 1}
                             isCRTEnabled={props.isCRTEnabled}
-                            isTablet={isTablet}
                             teamsCount={props.teamsCount}
                             channelsCount={props.channelsCount}
                         />
@@ -191,7 +190,7 @@ const ChannelListScreen = (props: ChannelProps) => {
                     </Animated.View>
                 </View>
             </SafeAreaView>
-        </FreezeScreen>
+        </>
     );
 };
 

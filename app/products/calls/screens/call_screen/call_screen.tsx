@@ -18,10 +18,9 @@ import {Navigation} from 'react-native-navigation';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {RTCView} from 'react-native-webrtc';
 
-import {appEntry} from '@actions/remote/entry';
 import {leaveCall, muteMyself, setSpeakerphoneOn, unmuteMyself} from '@calls/actions';
 import {startCallRecording, stopCallRecording} from '@calls/actions/calls';
-import {recordingAlert, recordingWillBePostedAlert} from '@calls/alerts';
+import {recordingAlert, recordingWillBePostedAlert, recordingErrorAlert} from '@calls/alerts';
 import CallAvatar from '@calls/components/call_avatar';
 import CallDuration from '@calls/components/call_duration';
 import CallsBadge, {CallsBadgeType} from '@calls/components/calls_badge';
@@ -31,7 +30,6 @@ import ReactionBar from '@calls/components/reaction_bar';
 import UnavailableIconWrapper from '@calls/components/unavailable_icon_wrapper';
 import {usePermissionsChecker} from '@calls/hooks';
 import {useCallsConfig} from '@calls/state';
-import {CallParticipant, CurrentCall} from '@calls/types/calls';
 import {sortParticipants} from '@calls/utils';
 import CompassIcon from '@components/compass_icon';
 import FormattedText from '@components/formatted_text';
@@ -40,12 +38,16 @@ import {Preferences, Screens, WebsocketEvents} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import DatabaseManager from '@database/manager';
+import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
+import {useIsTablet} from '@hooks/device';
+import WebsocketManager from '@managers/websocket_manager';
 import {
     bottomSheet,
     dismissAllModalsAndPopToScreen,
     dismissBottomSheet,
     goToScreen,
     popTopScreen,
+    setScreensOrientation,
 } from '@screens/navigation';
 import NavigationStore from '@store/navigation_store';
 import {bottomSheetSnapPoint} from '@utils/helpers';
@@ -53,8 +55,11 @@ import {mergeNavigationOptions} from '@utils/navigation';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {displayUsername} from '@utils/user';
 
+import type {CallParticipant, CurrentCall} from '@calls/types/calls';
+import type {AvailableScreens} from '@typings/screens/navigation';
+
 export type Props = {
-    componentId: string;
+    componentId: AvailableScreens;
     currentCall: CurrentCall | null;
     participantsDict: Dictionary<CallParticipant>;
     micPermissionsGranted: boolean;
@@ -118,10 +123,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
         flex: 1,
         flexDirection: 'row',
         flexWrap: 'wrap',
-        width: '100%',
-        height: '100%',
-        alignContent: 'center',
-        alignItems: 'flex-start',
+        alignContent: 'flex-start',
     },
     usersScrollLandscapeScreenOn: {
         position: 'absolute',
@@ -259,8 +261,9 @@ const CallScreen = ({
 }: Props) => {
     const intl = useIntl();
     const theme = useTheme();
-    const insets = useSafeAreaInsets();
+    const {bottom} = useSafeAreaInsets();
     const {width, height} = useWindowDimensions();
+    const isTablet = useIsTablet();
     const serverUrl = useServerUrl();
     const {EnableRecordings} = useCallsConfig(serverUrl);
     usePermissionsChecker(micPermissionsGranted);
@@ -276,7 +279,7 @@ const CallScreen = ({
     const callThreadOptionTitle = intl.formatMessage({id: 'mobile.calls_call_thread', defaultMessage: 'Call Thread'});
     const recordOptionTitle = intl.formatMessage({id: 'mobile.calls_record', defaultMessage: 'Record'});
     const stopRecordingOptionTitle = intl.formatMessage({id: 'mobile.calls_stop_recording', defaultMessage: 'Stop Recording'});
-    const openChannelOptionTitle = intl.formatMessage({id: 'mobile.calls_call_thread', defaultMessage: 'Open Channel'});
+    const openChannelOptionTitle = intl.formatMessage({id: 'mobile.calls_open_channel', defaultMessage: 'Open Channel'});
 
     useEffect(() => {
         mergeNavigationOptions('Call', {
@@ -354,7 +357,7 @@ const CallScreen = ({
             await popTopScreen(Screens.THREAD);
         }
         await DatabaseManager.setActiveServerDatabase(currentCall.serverUrl);
-        await appEntry(currentCall.serverUrl, Date.now());
+        WebsocketManager.initializeClient(currentCall.serverUrl);
         await goToScreen(Screens.THREAD, callThreadOptionTitle, {rootId: currentCall.threadId});
     }, [currentCall?.serverUrl, currentCall?.threadId, fromThreadScreen, componentId, callThreadOptionTitle]);
 
@@ -372,6 +375,11 @@ const CallScreen = ({
         recordingWillBePostedAlert(intl);
     }
 
+    // The host should receive an alert in case of unexpected error.
+    if (isHost && currentCall?.recState?.err) {
+        recordingErrorAlert(intl);
+    }
+
     // The user should see the loading only if:
     // - Recording has been initialized, recording has not been started, and recording has not ended
     const waitingForRecording = Boolean(currentCall?.recState?.init_at && !currentCall.recState.start_at && !currentCall.recState.end_at && isHost);
@@ -379,7 +387,7 @@ const CallScreen = ({
     const showOtherActions = useCallback(async () => {
         const renderContent = () => {
             return (
-                <View style={style.bottomSheet}>
+                <View>
                     {
                         isHost && EnableRecordings && !(waitingForRecording || recording) &&
                         <SlideUpPanelItem
@@ -392,7 +400,6 @@ const CallScreen = ({
                         isHost && EnableRecordings && (waitingForRecording || recording) &&
                         <SlideUpPanelItem
                             icon={'record-square-outline'}
-                            imageStyles={style.denimDND}
                             onPress={stopRecording}
                             text={stopRecordingOptionTitle}
                             textStyles={style.denimDND}
@@ -411,17 +418,21 @@ const CallScreen = ({
         await bottomSheet({
             closeButtonId: 'close-other-actions',
             renderContent,
-            snapPoints: [bottomSheetSnapPoint(items, ITEM_HEIGHT, insets.bottom), 10],
+            snapPoints: [1, bottomSheetSnapPoint(items, ITEM_HEIGHT, bottom)],
             title: intl.formatMessage({id: 'post.options.title', defaultMessage: 'Options'}),
             theme,
         });
-    }, [insets, intl, theme, isHost, EnableRecordings, waitingForRecording, recording, startRecording,
+    }, [bottom, intl, theme, isHost, EnableRecordings, waitingForRecording, recording, startRecording,
         recordOptionTitle, stopRecording, stopRecordingOptionTitle, style, switchToThread, callThreadOptionTitle,
         openChannelOptionTitle]);
 
+    useAndroidHardwareBackHandler(componentId, () => {
+        popTopScreen(componentId);
+    });
+
     useEffect(() => {
         const listener = DeviceEventEmitter.addListener(WebsocketEvents.CALLS_CALL_END, ({channelId}) => {
-            if (channelId === currentCall?.channelId && NavigationStore.getNavigationTopComponentId() === componentId) {
+            if (channelId === currentCall?.channelId && NavigationStore.getVisibleScreen() === componentId) {
                 Navigation.pop(componentId);
             }
         });
@@ -429,11 +440,21 @@ const CallScreen = ({
         return () => listener.remove();
     }, []);
 
+    useEffect(() => {
+        const didDismissListener = Navigation.events().registerComponentDidDisappearListener(async ({componentId: screen}) => {
+            if (componentId === screen) {
+                setScreensOrientation(isTablet);
+            }
+        });
+
+        return () => didDismissListener.remove();
+    }, [isTablet]);
+
     if (!currentCall || !myParticipant) {
         // Note: this happens because the screen is "rendered", even after the screen has been popped, and the
         // currentCall will have already been set to null when those extra renders run. We probably don't ever need
         // to pop, but just in case.
-        if (NavigationStore.getNavigationTopComponentId() === componentId) {
+        if (NavigationStore.getVisibleScreen() === componentId) {
             // ignore the error because the call screen has likely already been popped async
             Navigation.pop(componentId).catch(() => null);
         }
@@ -455,7 +476,7 @@ const CallScreen = ({
                 <FormattedText
                     id={'mobile.calls_viewing_screen'}
                     defaultMessage={'You are viewing {name}\'s screen'}
-                    values={{name: displayUsername(participantsDict[currentCall.screenOn].userModel, teammateNameDisplay)}}
+                    values={{name: displayUsername(participantsDict[currentCall.screenOn].userModel, intl.locale, teammateNameDisplay)}}
                     style={style.screenShareText}
                 />
             </Pressable>
@@ -469,7 +490,7 @@ const CallScreen = ({
             <ScrollView
                 alwaysBounceVertical={false}
                 horizontal={currentCall.screenOn !== ''}
-                contentContainerStyle={[isLandscape && currentCall.screenOn && style.usersScrollLandscapeScreenOn]}
+                contentContainerStyle={[isLandscape && Boolean(currentCall.screenOn) && style.usersScrollLandscapeScreenOn]}
             >
                 <Pressable
                     testID='users-list'
@@ -479,7 +500,7 @@ const CallScreen = ({
                     {participants.map((user) => {
                         return (
                             <View
-                                style={[style.user, currentCall.screenOn && style.userScreenOn]}
+                                style={[style.user, Boolean(currentCall.screenOn) && style.userScreenOn]}
                                 key={user.id}
                             >
                                 <CallAvatar
@@ -493,7 +514,7 @@ const CallScreen = ({
                                     serverUrl={currentCall.serverUrl}
                                 />
                                 <Text style={style.username}>
-                                    {displayUsername(user.userModel, teammateNameDisplay)}
+                                    {displayUsername(user.userModel, intl.locale, teammateNameDisplay)}
                                     {user.id === myParticipant.id &&
                                         ` ${intl.formatMessage({id: 'mobile.calls_you', defaultMessage: '(you)'})}`
                                     }

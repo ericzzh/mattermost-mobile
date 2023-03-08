@@ -2,7 +2,7 @@
 // See LICENSE.txt for license information.
 
 import {ServerScreen} from '@support/ui/screen';
-import {timeouts} from '@support/utils';
+import {timeouts, wait} from '@support/utils';
 import {expect} from 'detox';
 
 class LoginScreen {
@@ -39,6 +39,7 @@ class LoginScreen {
     signinButtonDisabled = element(by.id(this.testID.signinButtonDisabled));
 
     toBeVisible = async () => {
+        await wait(timeouts.ONE_SEC);
         await waitFor(this.loginScreen).toExist().withTimeout(timeouts.TEN_SEC);
         await waitFor(this.usernameInput).toBeVisible().withTimeout(timeouts.TEN_SEC);
 
@@ -62,6 +63,7 @@ class LoginScreen {
         await this.usernameInput.replaceText(user.username);
         await this.passwordInput.replaceText(user.password);
         await this.signinButton.tap();
+        await wait(timeouts.ONE_SEC);
     };
 }
 

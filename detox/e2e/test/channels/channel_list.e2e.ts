@@ -27,6 +27,7 @@ import {
     LoginScreen,
     ServerScreen,
 } from '@support/ui/screen';
+import {timeouts, wait} from '@support/utils';
 import {expect} from 'detox';
 
 describe('Channels - Channel List', () => {
@@ -65,7 +66,6 @@ describe('Channels - Channel List', () => {
         await expect(ChannelListScreen.serverIcon).toBeVisible();
         await expect(ChannelListScreen.headerTeamDisplayName).toHaveText(testTeam.display_name);
         await expect(ChannelListScreen.headerServerDisplayName).toHaveText(serverOneDisplayName);
-        await expect(ChannelListScreen.headerChevronButton).toBeVisible();
         await expect(ChannelListScreen.headerPlusButton).toBeVisible();
         await expect(ChannelListScreen.threadsButton).toBeVisible();
         await expect(ChannelListScreen.getCategoryHeaderDisplayName(channelsCategory)).toHaveText('CHANNELS');
@@ -110,6 +110,7 @@ describe('Channels - Channel List', () => {
         await ChannelListScreen.getCategoryExpanded(channelsCategory).tap();
 
         // * Verify category is collapsed and channels are not listed
+        await wait(timeouts.ONE_SEC);
         await expect(ChannelListScreen.getCategoryCollapsed(channelsCategory)).toBeVisible();
         await expect(ChannelListScreen.getChannelItemDisplayName(channelsCategory, testChannel.name)).not.toBeVisible();
         await expect(ChannelListScreen.getChannelItemDisplayName(channelsCategory, offTopicChannelName)).not.toBeVisible();
@@ -119,6 +120,7 @@ describe('Channels - Channel List', () => {
         await ChannelListScreen.getCategoryCollapsed(channelsCategory).tap();
 
         // * Verify category is expanded and all channels are listed
+        await wait(timeouts.ONE_SEC);
         await expect(ChannelListScreen.getCategoryExpanded(channelsCategory)).toBeVisible();
         await expect(ChannelListScreen.getChannelItemDisplayName(channelsCategory, testChannel.name)).toBeVisible();
         await expect(ChannelListScreen.getChannelItemDisplayName(channelsCategory, offTopicChannelName)).toBeVisible();
@@ -128,6 +130,7 @@ describe('Channels - Channel List', () => {
     it('MM-T4728_4 - should be able to go to browse channels screen', async () => {
         // # Tap on plus menu button and tap on browse channels item
         await ChannelListScreen.headerPlusButton.tap();
+        await wait(timeouts.ONE_SEC);
         await ChannelListScreen.browseChannelsItem.tap();
 
         // * Verify on browse channels screen
@@ -140,6 +143,7 @@ describe('Channels - Channel List', () => {
     it('MM-T4728_5 - should be able to go to create direct message screen', async () => {
         // # Tap on plus menu button and tap on open a direct message item
         await ChannelListScreen.headerPlusButton.tap();
+        await wait(timeouts.ONE_SEC);
         await ChannelListScreen.openDirectMessageItem.tap();
 
         // * Verify on create direct message screen
@@ -153,6 +157,7 @@ describe('Channels - Channel List', () => {
     it('MM-T4728_6 - should be able to go to create channel screen', async () => {
         // # Tap on plus menu button and tap on create new channel item
         await ChannelListScreen.headerPlusButton.tap();
+        await wait(timeouts.ONE_SEC);
         await ChannelListScreen.createNewChannelItem.tap();
 
         // * Verify on create channel screen
@@ -193,7 +198,7 @@ describe('Channels - Channel List', () => {
         // * Verify on first team and team sidebar item is selected and has correct display name abbreviation
         await expect(ChannelListScreen.headerTeamDisplayName).toHaveText(testTeam.display_name);
         await expect(ChannelListScreen.getTeamItemSelected(testTeam.id)).toBeVisible();
-        await expect(ChannelListScreen.getTeamItemDisplayNameAbbreviation(testTeam.id)).toHaveText(testTeam.display_name.substring(0, 2));
+        await expect(ChannelListScreen.getTeamItemDisplayNameAbbreviation(testTeam.id)).toHaveText(testTeam.display_name.substring(0, 2).toUpperCase());
 
         // # Tap on second team item from team sidebar
         await ChannelListScreen.getTeamItemNotSelected(testTeamTwo.id).tap();
@@ -201,7 +206,7 @@ describe('Channels - Channel List', () => {
         // * Verify on second team and team sidebar item is selected and has correct display name abbreviation
         await expect(ChannelListScreen.headerTeamDisplayName).toHaveText(testTeamTwo.display_name);
         await expect(ChannelListScreen.getTeamItemSelected(testTeamTwo.id)).toBeVisible();
-        await expect(ChannelListScreen.getTeamItemDisplayNameAbbreviation(testTeamTwo.id)).toHaveText(testTeamTwo.display_name.substring(0, 2));
+        await expect(ChannelListScreen.getTeamItemDisplayNameAbbreviation(testTeamTwo.id)).toHaveText(testTeamTwo.display_name.substring(0, 2).toUpperCase());
 
         // # Tap back on first team item from team sidebar
         await ChannelListScreen.getTeamItemNotSelected(testTeam.id).tap();

@@ -5,6 +5,7 @@ import {Linking} from 'react-native';
 
 import DeepLinkType from '@constants/deep_linking';
 import TestHelper from '@test/test_helper';
+import {matchDeepLink, parseDeepLink} from '@utils/deep_link';
 import * as UrlUtils from '@utils/url';
 
 /* eslint-disable max-nested-callbacks */
@@ -127,31 +128,33 @@ describe('UrlUtils', () => {
     });
 
     describe('matchDeepLink', () => {
-        const URL_NO_PROTOCOL = 'localhost:8065/subdir';
+        const URL_NO_PROTOCOL = 'localhost:8065';
+        const URL_PATH_NO_PROTOCOL = 'localhost:8065/subpath';
         const SITE_URL = `http://${URL_NO_PROTOCOL}`;
         const SERVER_URL = `http://${URL_NO_PROTOCOL}`;
+        const SERVER_WITH_SUBPATH = `http://${URL_PATH_NO_PROTOCOL}`;
         const DEEPLINK_URL_ROOT = `mattermost://${URL_NO_PROTOCOL}`;
 
         const tests = [
             {
                 name: 'should return null if all inputs are empty',
                 input: {url: '', serverURL: '', siteURL: ''},
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should return null if any of the input is null',
                 input: {url: '', serverURL: '', siteURL: null},
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should return null if any of the input is null',
                 input: {url: '', serverURL: null, siteURL: ''},
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should return null if any of the input is null',
                 input: {url: null, serverURL: '', siteURL: ''},
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should return null for not supported link',
@@ -160,12 +163,12 @@ describe('UrlUtils', () => {
                     serverURL: SERVER_URL,
                     siteURL: SITE_URL,
                 },
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should return null despite url subset match',
                 input: {url: 'http://myserver.com', serverURL: 'http://myserver.co'},
-                expected: null,
+                expected: {type: 'invalid'},
             },
             {
                 name: 'should match despite no server URL in input link',
@@ -232,19 +235,46 @@ describe('UrlUtils', () => {
                 },
             },
             {
-                name: 'should match permalink with depplink prefix',
+                name: 'should match permalink with deeplink prefix on a Server hosted in a Subpath',
                 input: {
-                    url: DEEPLINK_URL_ROOT + '/ad-1/pl/qe93kkfd7783iqwuwfcwcxbsgy',
-                    serverURL: SERVER_URL,
-                    siteURL: SITE_URL,
+                    url: DEEPLINK_URL_ROOT + '/subpath/ad-1/pl/qe93kkfd7783iqwuwfcwcxbsrr',
+                    serverURL: SERVER_WITH_SUBPATH,
+                    siteURL: SERVER_WITH_SUBPATH,
                 },
                 expected: {
                     data: {
-                        postId: 'qe93kkfd7783iqwuwfcwcxbsgy',
-                        serverUrl: URL_NO_PROTOCOL,
+                        postId: 'qe93kkfd7783iqwuwfcwcxbsrr',
+                        serverUrl: URL_PATH_NO_PROTOCOL,
                         teamName: 'ad-1',
                     },
                     type: 'permalink',
+                },
+            },
+            {
+                name: 'should match permalink on a Server hosted in a Subpath',
+                input: {
+                    url: SERVER_WITH_SUBPATH + '/ad-1/pl/qe93kkfd7783iqwuwfcwcxbsrr',
+                    serverURL: SERVER_WITH_SUBPATH,
+                    siteURL: SERVER_WITH_SUBPATH,
+                },
+                expected: {
+                    data: {
+                        postId: 'qe93kkfd7783iqwuwfcwcxbsrr',
+                        serverUrl: URL_PATH_NO_PROTOCOL,
+                        teamName: 'ad-1',
+                    },
+                    type: 'permalink',
+                },
+            },
+            {
+                name: 'should not match url',
+                input: {
+                    url: 'https://github.com/mattermost/mattermost-mobile/issues/new',
+                    serverURL: SERVER_WITH_SUBPATH,
+                    siteURL: SERVER_WITH_SUBPATH,
+                },
+                expected: {
+                    type: 'invalid',
                 },
             },
         ];
@@ -253,7 +283,10 @@ describe('UrlUtils', () => {
             const {name, input, expected} = test;
 
             it(name, () => {
-                expect(UrlUtils.matchDeepLink(input.url!, input.serverURL!, input.siteURL!)).toEqual(expected);
+                const match = matchDeepLink(input.url!, input.serverURL!, input.siteURL!);
+                const parsed = parseDeepLink(match);
+                Reflect.deleteProperty(parsed, 'url');
+                expect(parsed).toEqual(expected);
             });
         }
     });

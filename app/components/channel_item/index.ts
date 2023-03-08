@@ -10,7 +10,7 @@ import {switchMap, distinctUntilChanged} from 'rxjs/operators';
 import {observeChannelsWithCalls} from '@calls/state';
 import {General} from '@constants';
 import {withServerUrl} from '@context/server';
-import {observeChannelSettings, observeMyChannel} from '@queries/servers/channel';
+import {observeIsMutedSetting, observeMyChannel, queryChannelMembers} from '@queries/servers/channel';
 import {queryDraft} from '@queries/servers/drafts';
 import {observeCurrentChannelId, observeCurrentUserId} from '@queries/servers/system';
 import {observeTeam} from '@queries/servers/team';
@@ -19,15 +19,12 @@ import ChannelItem from './channel_item';
 
 import type {WithDatabaseArgs} from '@typings/database/database';
 import type ChannelModel from '@typings/database/models/servers/channel';
-import type MyChannelModel from '@typings/database/models/servers/my_channel';
 
 type EnhanceProps = WithDatabaseArgs & {
     channel: ChannelModel;
     showTeamName?: boolean;
     serverUrl?: string;
 }
-
-const observeIsMutedSetting = (mc: MyChannelModel) => observeChannelSettings(mc.database, mc.id).pipe(switchMap((s) => of$(s?.notifyProps?.mark_unread === General.MENTION)));
 
 const enhance = withObservables(['channel', 'showTeamName'], ({
     channel,
@@ -53,7 +50,7 @@ const enhance = withObservables(['channel', 'showTeamName'], ({
             if (!mc) {
                 return of$(false);
             }
-            return observeIsMutedSetting(mc);
+            return observeIsMutedSetting(database, mc.id);
         }),
     );
 
@@ -67,7 +64,7 @@ const enhance = withObservables(['channel', 'showTeamName'], ({
 
     let membersCount = of$(0);
     if (channel.type === General.GM_CHANNEL) {
-        membersCount = channel.members.observeCount(false);
+        membersCount = queryChannelMembers(database, channel.id).observeCount(false);
     }
 
     const isUnread = myChannel.pipe(

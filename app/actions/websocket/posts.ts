@@ -1,13 +1,12 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Model} from '@nozbe/watermelondb';
 import {DeviceEventEmitter} from 'react-native';
 
 import {storeMyChannelsForTeam, markChannelAsUnread, markChannelAsViewed, updateLastPostAt} from '@actions/local/channel';
 import {markPostAsDeleted} from '@actions/local/post';
 import {createThreadFromNewPost, updateThread} from '@actions/local/thread';
-import {fetchChannelStats, fetchMyChannel, markChannelAsRead} from '@actions/remote/channel';
+import {fetchChannelStats, fetchMyChannel} from '@actions/remote/channel';
 import {fetchPostAuthors, fetchPostById} from '@actions/remote/post';
 import {fetchThread} from '@actions/remote/thread';
 import {ActionType, Events, Screens} from '@constants';
@@ -20,12 +19,11 @@ import NavigationStore from '@store/navigation_store';
 import {isTablet} from '@utils/helpers';
 import {isFromWebhook, isSystemMessage, shouldIgnorePost} from '@utils/post';
 
+import type {Model} from '@nozbe/watermelondb';
 import type MyChannelModel from '@typings/database/models/servers/my_channel';
 
 function preparedMyChannelHack(myChannel: MyChannelModel) {
-    // @ts-expect-error hack accessing _preparedState
     if (!myChannel._preparedState) {
-        // @ts-expect-error hack setting _preparedState
         myChannel._preparedState = null;
     }
 }
@@ -118,7 +116,6 @@ export async function handleNewPostEvent(serverUrl: string, msg: WebSocketMessag
 
     if (!shouldIgnorePost(post)) {
         let markAsViewed = false;
-        let markAsRead = false;
 
         if (!myChannel.manuallyUnread) {
             if (
@@ -127,23 +124,19 @@ export async function handleNewPostEvent(serverUrl: string, msg: WebSocketMessag
                 !isFromWebhook(post)
             ) {
                 markAsViewed = true;
-                markAsRead = false;
             } else if ((post.channel_id === currentChannelId)) {
-                const isChannelScreenMounted = NavigationStore.getNavigationComponents().includes(Screens.CHANNEL);
+                const isChannelScreenMounted = NavigationStore.getScreensInStack().includes(Screens.CHANNEL);
 
                 const isTabletDevice = await isTablet();
                 if (isChannelScreenMounted || isTabletDevice) {
                     markAsViewed = false;
-                    markAsRead = true;
                 }
             }
         }
 
-        if (markAsRead) {
-            markChannelAsRead(serverUrl, post.channel_id);
-        } else if (markAsViewed) {
+        if (markAsViewed) {
             preparedMyChannelHack(myChannel);
-            const {member: viewedAt} = await markChannelAsViewed(serverUrl, post.channel_id, true);
+            const {member: viewedAt} = await markChannelAsViewed(serverUrl, post.channel_id, false, true);
             if (viewedAt) {
                 models.push(viewedAt);
             }
@@ -164,8 +157,13 @@ export async function handleNewPostEvent(serverUrl: string, msg: WebSocketMessag
         }
     }
 
+    let actionType: string = ActionType.POSTS.RECEIVED_NEW;
+    if (isCRTEnabled && post.root_id) {
+        actionType = ActionType.POSTS.RECEIVED_IN_THREAD;
+    }
+
     const postModels = await operator.handlePosts({
-        actionType: ActionType.POSTS.RECEIVED_NEW,
+        actionType,
         order: [post.id],
         posts: [post],
         prepareRecordsOnly: true,
@@ -173,7 +171,7 @@ export async function handleNewPostEvent(serverUrl: string, msg: WebSocketMessag
 
     models.push(...postModels);
 
-    operator.batchRecords(models);
+    operator.batchRecords(models, 'handleNewPostEvent');
 }
 
 export async function handlePostEdited(serverUrl: string, msg: WebSocketMessage) {
@@ -203,15 +201,21 @@ export async function handlePostEdited(serverUrl: string, msg: WebSocketMessage)
         models.push(...authorsModels);
     }
 
+    let actionType: string = ActionType.POSTS.RECEIVED_NEW;
+    const isCRTEnabled = await getIsCRTEnabled(operator.database);
+    if (isCRTEnabled && post.root_id) {
+        actionType = ActionType.POSTS.RECEIVED_IN_THREAD;
+    }
+
     const postModels = await operator.handlePosts({
-        actionType: ActionType.POSTS.RECEIVED_NEW,
+        actionType,
         order: [post.id],
         posts: [post],
         prepareRecordsOnly: true,
     });
     models.push(...postModels);
 
-    operator.batchRecords(models);
+    operator.batchRecords(models, 'handlePostEdited');
 }
 
 export async function handlePostDeleted(serverUrl: string, msg: WebSocketMessage) {
@@ -254,7 +258,7 @@ export async function handlePostDeleted(serverUrl: string, msg: WebSocketMessage
         }
 
         if (models.length) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'handlePostDeleted');
         }
     } catch {
         // Do nothing

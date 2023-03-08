@@ -59,17 +59,17 @@ describe('Messaging - Markdown Latex', () => {
         // * Verify markdown latex code block is displayed
         const {post} = await Post.apiGetLastPostInChannel(siteOneUrl, testChannel.id);
         const {postListPostItemLatexCodeBlock} = ChannelScreen.getPostListPostItem(post.id);
-        await ChannelScreen.getFlatPostList().scrollTo('bottom');
+        await waitFor(postListPostItemLatexCodeBlock).toBeVisible().whileElement(by.id(ChannelScreen.postList.testID.flatList)).scroll(50, 'down');
         await expect(postListPostItemLatexCodeBlock).toBeVisible();
 
         // # Go back to channel list screen
         await ChannelScreen.back();
     });
 
-    it('MM-T4900_2 - should be able to display markdown inline latex -- KNOWN ISSUE: MM-45466', async () => {
+    it('MM-T4900_2 - should be able to display markdown inline latex', async () => {
         // # Open a channel screen and post a markdown inline latex
         // eslint-disable-next-line no-useless-escape
-        const message = 'X_k = \sum_{n=0}^{2N-1} x_n \cos \left[\frac{\pi}{N} \left(n+\frac{1}{2}+\frac{N}{2}\right) \left(k+\frac{1}{2}\right) \right]';
+        const message = 'X_k = \\sum_{n=0}^{2N-1} x_n \\cos \\left[\\frac{\\pi}{N} \\left(n+\\frac{1}{2}+\\frac{N}{2}\\right) \\left(k+\\frac{1}{2}\\right) \\right]';
         const markdownInlineLatex = `$${message}$`;
         await ChannelScreen.open(channelsCategory, testChannel.name);
         await ChannelScreen.postMessage(markdownInlineLatex);

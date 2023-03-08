@@ -1,13 +1,16 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {IntlShape} from 'react-intl';
 import {Alert} from 'react-native';
 import {Navigation, Options} from 'react-native-navigation';
 
-import {Screens} from '@constants';
+import {Screens, ServerErrors} from '@constants';
+import {isServerError} from '@utils/errors';
 
-export const appearanceControlledScreens = new Set([
+import type {AvailableScreens} from '@typings/screens/navigation';
+import type {IntlShape} from 'react-intl';
+
+export const appearanceControlledScreens = new Set<AvailableScreens>([
     Screens.ONBOARDING,
     Screens.SERVER,
     Screens.LOGIN,
@@ -70,5 +73,25 @@ export function alertChannelArchived(displayName: string, intl: IntlShape) {
             style: 'cancel',
             text: intl.formatMessage({id: 'mobile.oauth.something_wrong.okButton', defaultMessage: 'OK'}),
         }],
+    );
+}
+
+export function alertTeamAddError(error: unknown, intl: IntlShape) {
+    let errMsg = intl.formatMessage({id: 'join_team.error.message', defaultMessage: 'There has been an error joining the team.'});
+
+    if (isServerError(error)) {
+        if (error.server_error_id === ServerErrors.TEAM_MEMBERSHIP_DENIAL_ERROR_ID) {
+            errMsg = intl.formatMessage({
+                id: 'join_team.error.group_error',
+                defaultMessage: 'You need to be a member of a linked group to join this team.',
+            });
+        } else if (error.message) {
+            errMsg = error.message;
+        }
+    }
+
+    Alert.alert(
+        intl.formatMessage({id: 'join_team.error.title', defaultMessage: 'Error joining a team'}),
+        errMsg,
     );
 }

@@ -1,12 +1,14 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useEffect} from 'react';
+import React, {useEffect, useMemo} from 'react';
+import {useWindowDimensions} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 
 import ThreadsButton from '@components/threads_button';
 import {TABLET_SIDEBAR_WIDTH, TEAM_SIDEBAR_WIDTH} from '@constants/view';
 import {useTheme} from '@context/theme';
+import {useIsTablet} from '@hooks/device';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
 import Categories from './categories';
@@ -28,7 +30,6 @@ type ChannelListProps = {
     channelsCount: number;
     iconPad?: boolean;
     isCRTEnabled?: boolean;
-    isTablet: boolean;
     teamsCount: number;
 };
 
@@ -36,9 +37,11 @@ const getTabletWidth = (teamsCount: number) => {
     return TABLET_SIDEBAR_WIDTH - (teamsCount > 1 ? TEAM_SIDEBAR_WIDTH : 0);
 };
 
-const CategoriesList = ({channelsCount, iconPad, isCRTEnabled, isTablet, teamsCount}: ChannelListProps) => {
+const CategoriesList = ({channelsCount, iconPad, isCRTEnabled, teamsCount}: ChannelListProps) => {
     const theme = useTheme();
     const styles = getStyleSheet(theme);
+    const {width} = useWindowDimensions();
+    const isTablet = useIsTablet();
     const tabletWidth = useSharedValue(isTablet ? getTabletWidth(teamsCount) : 0);
 
     useEffect(() => {
@@ -50,26 +53,26 @@ const CategoriesList = ({channelsCount, iconPad, isCRTEnabled, isTablet, teamsCo
     const tabletStyle = useAnimatedStyle(() => {
         if (!isTablet) {
             return {
-                maxWidth: '100%',
+                maxWidth: width,
             };
         }
 
         return {maxWidth: withTiming(tabletWidth.value, {duration: 350})};
-    }, [isTablet]);
+    }, [isTablet, width]);
 
-    let content;
+    const content = useMemo(() => {
+        if (channelsCount < 1) {
+            return (<LoadChannelsError/>);
+        }
 
-    if (channelsCount < 1) {
-        content = (<LoadChannelsError/>);
-    } else {
-        content = (
+        return (
             <>
                 <SubHeader/>
                 {isCRTEnabled && <ThreadsButton/>}
                 <Categories/>
             </>
         );
-    }
+    }, [isCRTEnabled]);
 
     return (
         <Animated.View style={[styles.container, tabletStyle]}>

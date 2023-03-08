@@ -5,17 +5,17 @@ import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
 import {Alert} from 'react-native';
 import {InAppBrowser} from 'react-native-inappbrowser-reborn';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Keyboard, Platform, Text, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {logError, logInfo} from '@app/utils/log';
+import {CHANNEL_ACTIONS_OPTIONS_HEIGHT} from '@components/channel_actions/channel_actions';
 import CompassIcon from '@components/compass_icon';
 import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
 import NavigationHeader from '@components/navigation_header';
 import {ITEM_HEIGHT} from '@components/option_item';
 import RoundedHeaderContext from '@components/rounded_header_context';
 import {General, Screens} from '@constants';
-import {QUICK_OPTIONS_HEIGHT} from '@constants/view';
 import {useTheme} from '@context/theme';
 import DatabaseManager from '@database/manager';
 import {useIsTablet} from '@hooks/device';
@@ -24,14 +24,16 @@ import {getCommonSystemValues} from '@queries/servers/system';
 import {getTeamById} from '@queries/servers/team';
 import {bottomSheet, popTopScreen, showModal, dismissAllModals} from '@screens/navigation';
 import {isTypeDMorGM} from '@utils/channel';
+import {bottomSheetSnapPoint} from '@utils/helpers';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
 import OtherMentionsBadge from './other_mentions_badge';
-import QuickActions from './quick_actions';
+import QuickActions, {MARGIN, SEPARATOR_HEIGHT} from './quick_actions';
 
 import type {HeaderRightButton} from '@components/navigation_header/header';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 type ChannelProps = {
     channelId: string;
@@ -39,7 +41,7 @@ type ChannelProps = {
     customStatus?: UserCustomStatus;
     isCustomStatusEnabled: boolean;
     isCustomStatusExpired: boolean;
-    componentId?: string;
+    componentId?: AvailableScreens;
     displayName: string;
     isOwnDirectMessage: boolean;
     memberCount?: number;
@@ -47,7 +49,7 @@ type ChannelProps = {
     teamId: string;
     serverUrl: string;
     callsEnabledInChannel: boolean;
-    callsFeatureRestricted: boolean;
+    isTabletView?: boolean;
 };
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -75,14 +77,18 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
     isCustomStatusEnabled, isCustomStatusExpired, isOwnDirectMessage, memberCount,
-    searchTerm, teamId, callsEnabledInChannel, callsFeatureRestricted, serverUrl,
+    searchTerm, teamId, callsEnabledInChannel, isTabletView, serverUrl,
 }: ChannelProps) => {
     const intl = useIntl();
     const isTablet = useIsTablet();
+    const {bottom} = useSafeAreaInsets();
     const theme = useTheme();
     const styles = getStyleSheet(theme);
     const defaultHeight = useDefaultHeaderHeight();
-    const callsAvailable = callsEnabledInChannel && !callsFeatureRestricted;
+
+    // NOTE: callsEnabledInChannel will be true/false (not undefined) based on explicit state + the DefaultEnabled system setting
+    //   which ultimately comes from channel/index.tsx, and observeIsCallsEnabledInChannel
+    const callsAvailable = callsEnabledInChannel;
 
     const isDMorGM = isTypeDMorGM(channelType);
     const contextStyle = useMemo(() => ({
@@ -100,7 +106,7 @@ const ChannelHeader = ({
     const onBackPress = useCallback(() => {
         Keyboard.dismiss();
         popTopScreen(componentId);
-    }, []);
+    }, [componentId]);
 
     const onTitlePress = useCallback(preventDoubleTap(() => {
         let title;
@@ -138,7 +144,8 @@ const ChannelHeader = ({
         }
 
         // When calls is enabled, we need space to move the "Copy Link" from a button to an option
-        const height = QUICK_OPTIONS_HEIGHT + (callsAvailable && !isDMorGM ? ITEM_HEIGHT : 0);
+        const items = callsAvailable && !isDMorGM ? 3 : 2;
+        const height = CHANNEL_ACTIONS_OPTIONS_HEIGHT + SEPARATOR_HEIGHT + MARGIN + (items * ITEM_HEIGHT);
 
         const renderContent = () => {
             return (
@@ -153,11 +160,11 @@ const ChannelHeader = ({
         bottomSheet({
             title: '',
             renderContent,
-            snapPoints: [height, 10],
+            snapPoints: [1, bottomSheetSnapPoint(1, height, bottom)],
             theme,
             closeButtonId: 'close-channel-quick-actions',
         });
-    }, [channelId, isDMorGM, isTablet, onTitlePress, theme, callsAvailable]);
+    }, [bottom, channelId, isDMorGM, isTablet, onTitlePress, theme, callsAvailable]);
 
     const onPressLinkToWebApp = useCallback(async () => {
         const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
@@ -282,7 +289,7 @@ const ChannelHeader = ({
                 onBackPress={onBackPress}
                 onTitlePress={onTitlePress}
                 rightButtons={rightButtons}
-                showBackButton={!isTablet}
+                showBackButton={!isTablet || !isTabletView}
                 subtitle={subtitle}
                 subtitleCompanion={subtitleCompanion}
                 title={title}

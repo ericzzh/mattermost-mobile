@@ -10,7 +10,7 @@ export const CALL = 'Call';
 export const CHANNEL = 'Channel';
 export const CHANNEL_ADD_PEOPLE = 'ChannelAddPeople';
 export const CHANNEL_INFO = 'ChannelInfo';
-export const CHANNEL_MENTION = 'ChannelMention';
+export const CHANNEL_NOTIFICATION_PREFERENCES = 'ChannelNotificationPreferences';
 export const CODE = 'Code';
 export const CREATE_DIRECT_MESSAGE = 'CreateDirectMessage';
 export const CREATE_OR_EDIT_CHANNEL = 'CreateOrEditChannel';
@@ -28,9 +28,12 @@ export const GLOBAL_THREADS = 'GlobalThreads';
 export const HOME = 'Home';
 export const INTEGRATION_SELECTOR = 'IntegrationSelector';
 export const INTERACTIVE_DIALOG = 'InteractiveDialog';
+export const INVITE = 'Invite';
 export const IN_APP_NOTIFICATION = 'InAppNotification';
+export const JOIN_TEAM = 'JoinTeam';
 export const LATEX = 'Latex';
 export const LOGIN = 'Login';
+export const MANAGE_CHANNEL_MEMBERS = 'ManageChannelMembers';
 export const MENTIONS = 'Mentions';
 export const MFA = 'MFA';
 export const ONBOARDING = 'Onboarding';
@@ -47,6 +50,7 @@ export const SETTINGS = 'Settings';
 export const SETTINGS_ADVANCED = 'SettingsAdvanced';
 export const SETTINGS_DISPLAY = 'SettingsDisplay';
 export const SETTINGS_DISPLAY_CLOCK = 'SettingsDisplayClock';
+export const SETTINGS_DISPLAY_CRT = 'SettingsDisplayCRT';
 export const SETTINGS_DISPLAY_THEME = 'SettingsDisplayTheme';
 export const SETTINGS_DISPLAY_TIMEZONE = 'SettingsDisplayTimezone';
 export const SETTINGS_DISPLAY_TIMEZONE_SELECT = 'SettingsDisplayTimezoneSelect';
@@ -75,7 +79,7 @@ export default {
     CHANNEL,
     CHANNEL_ADD_PEOPLE,
     CHANNEL_INFO,
-    CHANNEL_MENTION,
+    CHANNEL_NOTIFICATION_PREFERENCES,
     CODE,
     CREATE_DIRECT_MESSAGE,
     CREATE_OR_EDIT_CHANNEL,
@@ -93,9 +97,12 @@ export default {
     HOME,
     INTEGRATION_SELECTOR,
     INTERACTIVE_DIALOG,
+    INVITE,
     IN_APP_NOTIFICATION,
+    JOIN_TEAM,
     LATEX,
     LOGIN,
+    MANAGE_CHANNEL_MEMBERS,
     MENTIONS,
     MFA,
     ONBOARDING,
@@ -112,6 +119,7 @@ export default {
     SETTINGS_ADVANCED,
     SETTINGS_DISPLAY,
     SETTINGS_DISPLAY_CLOCK,
+    SETTINGS_DISPLAY_CRT,
     SETTINGS_DISPLAY_THEME,
     SETTINGS_DISPLAY_TIMEZONE,
     SETTINGS_DISPLAY_TIMEZONE_SELECT,
@@ -129,7 +137,7 @@ export default {
     THREAD_FOLLOW_BUTTON,
     THREAD_OPTIONS,
     USER_PROFILE,
-};
+} as const;
 
 export const MODAL_SCREENS_WITHOUT_BACK = new Set<string>([
     BROWSE_CHANNELS,
@@ -140,34 +148,29 @@ export const MODAL_SCREENS_WITHOUT_BACK = new Set<string>([
     EDIT_POST,
     EDIT_PROFILE,
     EDIT_SERVER,
-    EMOJI_PICKER,
     FIND_CHANNELS,
     GALLERY,
+    MANAGE_CHANNEL_MEMBERS,
+    INVITE,
     PERMALINK,
-    REACTIONS,
 ]);
 
 export const SCREENS_WITH_TRANSPARENT_BACKGROUND = new Set<string>([
-    BOTTOM_SHEET,
-    POST_OPTIONS,
-    THREAD_OPTIONS,
     PERMALINK,
-    REACTIONS,
+    REVIEW_APP,
     SNACK_BAR,
-    USER_PROFILE,
 ]);
 
-export const OVERLAY_SCREENS = new Set<string>([
-    GALLERY,
-    IN_APP_NOTIFICATION,
-    REVIEW_APP,
-    SHARE_FEEDBACK,
-    SNACK_BAR,
-    TERMS_OF_SERVICE,
+export const SCREENS_AS_BOTTOM_SHEET = new Set<string>([
+    BOTTOM_SHEET,
+    EMOJI_PICKER,
+    POST_OPTIONS,
+    THREAD_OPTIONS,
+    REACTIONS,
+    USER_PROFILE,
 ]);
 
 export const NOT_READY = [
     CHANNEL_ADD_PEOPLE,
-    CHANNEL_MENTION,
     CREATE_TEAM,
 ];

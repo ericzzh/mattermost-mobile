@@ -175,10 +175,12 @@ const OptionItem = ({
             />
         );
     } else if (type === OptionType.RADIO) {
+        const radioComponentTestId = selected ? `${testID}.selected` : `${testID}.not_selected`;
         radioComponent = (
             <RadioItem
                 selected={Boolean(selected)}
                 {...radioItemProps}
+                testID={radioComponentTestId}
             />
         );
     } else if (type === OptionType.TOGGLE) {
@@ -271,7 +273,7 @@ const OptionItem = ({
                     Boolean(info) &&
                     <View style={styles.infoContainer}>
                         <Text
-                            style={[styles.info, destructive && {color: theme.dndIndicator}]}
+                            style={[styles.info, !actionComponent && styles.iconContainer, destructive && {color: theme.dndIndicator}]}
                             testID={`${testID}.info`}
                         >
                             {info}
@@ -283,7 +285,6 @@ const OptionItem = ({
             }
         </View>
     );
-
     if (Object.values(TouchableOptionTypes).includes(type)) {
         return (
             <TouchableOpacity onPress={onPress}>

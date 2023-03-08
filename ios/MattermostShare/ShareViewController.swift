@@ -10,6 +10,7 @@ import Gekidou
 import SwiftUI
 import UIKit
 import os.log
+import Sentry
 
 class ShareViewController: UIViewController {
   private var fileManager: LocalFileManager?
@@ -20,7 +21,6 @@ class ShareViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     self.isModalInPresentation = true
-    
     self.addObservers()
     fileManager = LocalFileManager()
     if let inputItems = extensionContext?.inputItems {
@@ -34,6 +34,9 @@ class ShareViewController: UIViewController {
           )
         })
     }
+    
+    // Initialize Sentry
+    initSentryAppExt()
   }
   
   override func viewDidAppear(_ animated: Bool) {
@@ -84,7 +87,6 @@ class ShareViewController: UIViewController {
   }
   
   private func doPost(_ notification: Notification) {
-    removeObservers()
     if let userInfo = notification.userInfo {
       let serverUrl = userInfo["serverUrl"] as? String
       let channelId = userInfo["channelId"] as? String
@@ -94,6 +96,8 @@ class ShareViewController: UIViewController {
       let fileCount = attachments.count
       let files: [String] = attachments.map{ $0.fileUrl.absoluteString }
       
+     
+     
       var message = text
       if linkPreviewUrl != nil && !linkPreviewUrl!.isEmpty {
         if text.isEmpty {
@@ -116,15 +120,20 @@ class ShareViewController: UIViewController {
         )
 
         let shareExtension = Gekidou.ShareExtension()
-        shareExtension.uploadFiles(
+        let uploadError = shareExtension.uploadFiles(
           serverUrl: url,
           channelId: channel,
           message: message,
           files: files,
           completionHandler: { [weak self] in
+            self?.removeObservers()
             self?.extensionContext!.completeRequest(returningItems: [])
           })
+        if uploadError != nil {
+          NotificationCenter.default.post(name: Notification.Name("errorPosting"), object: nil, userInfo: ["info": uploadError as Any])
+        }
       } else {
+        removeObservers()
         extensionContext!.completeRequest(returningItems: [])
       }
     }

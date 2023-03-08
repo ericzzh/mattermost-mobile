@@ -5,7 +5,6 @@ import React, {useCallback, useEffect, useMemo, useReducer, useRef, useState} fr
 import {useIntl} from 'react-intl';
 import {Keyboard, ScrollView, Text, View} from 'react-native';
 import Button from 'react-native-button';
-import {ImageResource} from 'react-native-navigation';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {handleGotoLocation} from '@actions/remote/command';
@@ -26,6 +25,9 @@ import DialogIntroductionText from '../interactive_dialog/dialog_introduction_te
 import {buildNavigationButton, dismissModal, setButtons} from '../navigation';
 
 import AppsFormField from './apps_form_field';
+
+import type {AvailableScreens} from '@typings/screens/navigation';
+import type {ImageResource} from 'react-native-navigation';
 
 const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -48,13 +50,11 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
             textAlign: 'left',
             color: (theme.errorTextColor || '#DA4A4A'),
         },
-        button: buttonBackgroundStyle(theme, 'lg', 'primary', 'default'),
         buttonContainer: {
             paddingTop: 20,
             paddingLeft: 50,
             paddingRight: 50,
         },
-        buttonText: buttonTextStyle(theme, 'lg', 'primary', 'default'),
     };
 });
 
@@ -78,7 +78,7 @@ const makeCloseButton = (icon: ImageResource) => {
 
 export type Props = {
     form: AppForm;
-    componentId: string;
+    componentId: AvailableScreens;
     refreshOnSelect: (field: AppField, values: AppFormValues, value: AppFormValue) => Promise<DoAppCallResult<FormResponseData>>;
     submit: (values: AppFormValues) => Promise<DoAppCallResult<FormResponseData>>;
     performLookupCall: (field: AppField, values: AppFormValues, value: AppFormValue) => Promise<DoAppCallResult<AppLookupResponse>>;
@@ -377,6 +377,9 @@ function AppsFormComponent({
     useNavButtonPressed(CLOSE_BUTTON_ID, componentId, close, [close]);
     useNavButtonPressed(SUBMIT_BUTTON_ID, componentId, handleSubmit, [handleSubmit]);
 
+    const submitButtonStyle = useMemo(() => buttonBackgroundStyle(theme, 'lg', 'primary', 'default'), [theme]);
+    const submitButtonTextStyle = useMemo(() => buttonTextStyle(theme, 'lg', 'primary', 'default'), [theme]);
+
     return (
         <SafeAreaView
             testID='interactive_dialog.screen'
@@ -427,9 +430,9 @@ function AppsFormComponent({
                         >
                             <Button
                                 onPress={() => handleSubmit(o.value)}
-                                containerStyle={style.button}
+                                containerStyle={submitButtonStyle}
                             >
-                                <Text style={style.buttonText}>{o.label}</Text>
+                                <Text style={submitButtonTextStyle}>{o.label}</Text>
                             </Button>
                         </View>
                     ))}

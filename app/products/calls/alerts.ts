@@ -2,35 +2,54 @@
 // See LICENSE.txt for license information.
 
 import {Alert} from 'react-native';
-import {Navigation} from 'react-native-navigation';
 
-import {hasMicrophonePermission, joinCall, leaveCall, unmuteMyself} from '@calls/actions';
-import {setMicPermissionsGranted} from '@calls/state';
+import {hasMicrophonePermission, joinCall, unmuteMyself} from '@calls/actions';
+import {leaveCallPopCallScreen} from '@calls/actions/calls';
+import {
+    getCallsConfig,
+    getCallsState,
+    getChannelsWithCalls,
+    getCurrentCall,
+    setMicPermissionsGranted,
+} from '@calls/state';
 import {errorAlert} from '@calls/utils';
-import {Screens} from '@constants';
 import DatabaseManager from '@database/manager';
+import {getChannelById} from '@queries/servers/channel';
 import {getCurrentUser} from '@queries/servers/user';
-import {dismissAllModals, dismissAllModalsAndPopToScreen} from '@screens/navigation';
-import NavigationStore from '@store/navigation_store';
+import {isDMorGM} from '@utils/channel';
 import {logError} from '@utils/log';
+import {isSystemAdmin} from '@utils/user';
 
+import type {LimitRestrictedInfo} from '@calls/observers';
 import type {IntlShape} from 'react-intl';
 
-// Only allow one recording alert per call.
-let recordingAlertLock = false;
+// Only unlock when:
+// - Joining a new call.
+// - A new recording has started.
+// - Host has changed to current user.
+let recordingAlertLock = true;
 
 // Only unlock if/when the user starts a recording.
 let recordingWillBePostedLock = true;
 
-export const showLimitRestrictedAlert = (maxParticipants: number, intl: IntlShape) => {
+// Only unlock when starting/stopping a recording.
+let recordingErrorLock = true;
+
+export const showLimitRestrictedAlert = (info: LimitRestrictedInfo, intl: IntlShape) => {
     const title = intl.formatMessage({
-        id: 'mobile.calls_participant_limit_title',
-        defaultMessage: 'Participant limit reached',
+        id: 'mobile.calls_participant_limit_title_GA',
+        defaultMessage: 'This call is at capacity',
     });
-    const message = intl.formatMessage({
+    let message = intl.formatMessage({
         id: 'mobile.calls_limit_msg',
         defaultMessage: 'The maximum number of participants per call is {maxParticipants}. Contact your System Admin to increase the limit.',
-    }, {maxParticipants});
+    }, {maxParticipants: info.maxParticipants});
+    if (info.isCloudStarter) {
+        message = intl.formatMessage({
+            id: 'mobile.calls_limit_msg_GA',
+            defaultMessage: 'Upgrade to Cloud Professional or Cloud Enterprise to enable group calls with more than {maxParticipants} participants.',
+        }, {maxParticipants: info.maxParticipants});
+    }
     const ok = intl.formatMessage({
         id: 'mobile.calls_ok',
         defaultMessage: 'Okay',
@@ -48,17 +67,39 @@ export const showLimitRestrictedAlert = (maxParticipants: number, intl: IntlShap
     );
 };
 
-export const leaveAndJoinWithAlert = (
+export const leaveAndJoinWithAlert = async (
     intl: IntlShape,
-    serverUrl: string,
-    channelId: string,
-    leaveChannelName: string,
-    joinChannelName: string,
-    confirmToJoin: boolean,
-    newCall: boolean,
-    isDMorGM: boolean,
+    joinServerUrl: string,
+    joinChannelId: string,
+    title?: string,
 ) => {
-    if (confirmToJoin) {
+    let leaveChannelName = '';
+    let joinChannelName = '';
+    let joinChannelIsDMorGM = false;
+    let leaveServerUrl = '';
+    let leaveChannelId = '';
+    const newCall = !getChannelsWithCalls(joinServerUrl)[joinChannelId];
+
+    try {
+        const {database: joinDatabase} = DatabaseManager.getServerDatabaseAndOperator(joinServerUrl);
+        const joinChannel = await getChannelById(joinDatabase, joinChannelId);
+        joinChannelName = joinChannel?.displayName || '';
+        joinChannelIsDMorGM = joinChannel ? isDMorGM(joinChannel) : false;
+
+        const currentCall = getCurrentCall();
+        if (currentCall) {
+            const {database: leaveDatabase} = DatabaseManager.getServerDatabaseAndOperator(currentCall.serverUrl);
+            const leaveChannel = await getChannelById(leaveDatabase, currentCall.channelId);
+            leaveChannelName = leaveChannel?.displayName || '';
+            leaveServerUrl = currentCall.serverUrl;
+            leaveChannelId = currentCall.channelId;
+        }
+    } catch (error) {
+        logError('failed to getServerDatabase in leaveAndJoinWithAlert', error);
+        return;
+    }
+
+    if (leaveServerUrl && leaveChannelId) {
         const {formatMessage} = intl;
 
         let joinMessage = formatMessage({
@@ -91,17 +132,24 @@ export const leaveAndJoinWithAlert = (
                         id: 'mobile.leave_and_join_confirmation',
                         defaultMessage: 'Leave & Join',
                     }),
-                    onPress: () => doJoinCall(serverUrl, channelId, isDMorGM, intl),
+                    onPress: () => doJoinCall(joinServerUrl, joinChannelId, joinChannelIsDMorGM, newCall, intl, title),
                     style: 'cancel',
                 },
             ],
         );
     } else {
-        doJoinCall(serverUrl, channelId, isDMorGM, intl);
+        doJoinCall(joinServerUrl, joinChannelId, joinChannelIsDMorGM, newCall, intl, title);
     }
 };
 
-const doJoinCall = async (serverUrl: string, channelId: string, isDMorGM: boolean, intl: IntlShape) => {
+const doJoinCall = async (
+    serverUrl: string,
+    channelId: string,
+    joinChannelIsDMorGM: boolean,
+    newCall: boolean,
+    intl: IntlShape,
+    title?: string,
+) => {
     const {formatMessage} = intl;
 
     let user;
@@ -113,6 +161,30 @@ const doJoinCall = async (serverUrl: string, channelId: string, isDMorGM: boolea
             // This shouldn't happen, so don't bother localizing and displaying an alert.
             return;
         }
+
+        if (newCall) {
+            const enabled = getCallsState(serverUrl).enabled[channelId];
+            const {DefaultEnabled} = getCallsConfig(serverUrl);
+            const isAdmin = isSystemAdmin(user.roles);
+
+            // if explicitly disabled, we wouldn't get to this point.
+            // if pre-GA calls:
+            //   if enabled is false, then this channel was returned as enabled=false from the server (it was either
+            //     explicitly disabled, or DefaultEnabled=false), and the StartCall button would not be shown
+            //   if enabled is true, then this channel was return as enabled=true from the server (it was either
+            //     explicitly enabled, or DefaultEnabled=true), everyone can start
+            // if GA calls:
+            //   if explicitly enabled, everyone can start a call
+            //   if !explicitly enabled and defaultEnabled, everyone can start
+            //   if !explicitly enabled and !defaultEnabled, system admins can start, regular users get alert
+            // Note: the below is a 'badly' coded if. But it's clear, which trumps.
+            if (enabled || (!enabled && DefaultEnabled) || (!enabled && !DefaultEnabled && isAdmin)) {
+                // continue through and start the call
+            } else {
+                contactAdminAlert(intl);
+                return;
+            }
+        }
     } catch (error) {
         logError('failed to getServerDatabaseAndOperator in doJoinCall', error);
         return;
@@ -123,20 +195,39 @@ const doJoinCall = async (serverUrl: string, channelId: string, isDMorGM: boolea
     const hasPermission = await hasMicrophonePermission();
     setMicPermissionsGranted(hasPermission);
 
-    const res = await joinCall(serverUrl, channelId, user.id, hasPermission);
+    const res = await joinCall(serverUrl, channelId, user.id, hasPermission, title);
     if (res.error) {
         const seeLogs = formatMessage({id: 'mobile.calls_see_logs', defaultMessage: 'See server logs'});
         errorAlert(res.error?.toString() || seeLogs, intl);
         return;
     }
 
-    if (isDMorGM) {
-        // FIXME (MM-46048) - HACK
-        // There's a race condition between unmuting and receiving existing tracks from other participants.
-        // Fixing this properly requires extensive and potentially breaking changes.
-        // Waiting for a second before unmuting is a decent workaround that should work in most cases.
-        setTimeout(() => unmuteMyself(), 1000);
+    if (joinChannelIsDMorGM) {
+        unmuteMyself();
     }
+};
+
+const contactAdminAlert = ({formatMessage}: IntlShape) => {
+    Alert.alert(
+        formatMessage({
+            id: 'mobile.calls_request_title',
+            defaultMessage: 'Calls is not currently enabled',
+        }),
+        formatMessage({
+            id: 'mobile.calls_request_message',
+            defaultMessage: 'Calls are currently running in test mode and only system admins can start them. Reach out directly to your system admin for assistance',
+        }),
+        [{
+            text: formatMessage({
+                id: 'mobile.calls_okay',
+                defaultMessage: 'Okay',
+            }),
+        }],
+    );
+};
+
+export const needsRecordingAlert = () => {
+    recordingAlertLock = false;
 };
 
 export const recordingAlert = (isHost: boolean, intl: IntlShape) => {
@@ -171,14 +262,7 @@ export const recordingAlert = (isHost: boolean, intl: IntlShape) => {
                 defaultMessage: 'Leave',
             }),
             onPress: async () => {
-                leaveCall();
-
-                // Need to pop the call screen, if it's somewhere in the stack.
-                await dismissAllModals();
-                if (NavigationStore.getNavigationComponents().includes(Screens.CALL)) {
-                    await dismissAllModalsAndPopToScreen(Screens.CALL, 'Call');
-                    Navigation.pop(Screens.CALL).catch(() => null);
-                }
+                await leaveCallPopCallScreen();
             },
             style: 'destructive',
         },
@@ -224,6 +308,36 @@ export const recordingWillBePostedAlert = (intl: IntlShape) => {
         formatMessage({
             id: 'mobile.calls_host_rec_stopped',
             defaultMessage: 'You can find the recording in this call\'s chat thread once it\'s finished processing.',
+        }),
+        [{
+            text: formatMessage({
+                id: 'mobile.calls_dismiss',
+                defaultMessage: 'Dismiss',
+            }),
+        }],
+    );
+};
+
+export const needsRecordingErrorAlert = () => {
+    recordingErrorLock = false;
+};
+
+export const recordingErrorAlert = (intl: IntlShape) => {
+    if (recordingErrorLock) {
+        return;
+    }
+    recordingErrorLock = true;
+
+    const {formatMessage} = intl;
+
+    Alert.alert(
+        formatMessage({
+            id: 'mobile.calls_host_rec_error_title',
+            defaultMessage: 'Something went wrong with the recording',
+        }),
+        formatMessage({
+            id: 'mobile.calls_host_rec_error',
+            defaultMessage: 'Please try to record again. You can also contact your system admin for troubleshooting help.',
         }),
         [{
             text: formatMessage({

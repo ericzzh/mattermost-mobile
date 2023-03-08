@@ -25,7 +25,7 @@ declare class CategoryModel extends Model {
     displayName: string;
 
     /** type : The type of category */
-    type: string;
+    type: CategoryType;
 
     /** sort_order : The sort order for this category */
     sortOrder: number;
@@ -58,7 +58,7 @@ declare class CategoryModel extends Model {
     @lazy myChannels: Query<MyChannelModel>;
 
     /** hasChannels : Whether the category has any channels */
-    @lazy hasChannels: Observable<boolean>;
+    observeHasChannels(canViewArchived: boolean, channelId: string): Observable<boolean>;
 
     /** toCategoryWithChannels returns a map of the Category with an array of ordered channel ids */
     toCategoryWithChannels(): Promise<CategoryWithChannels>;

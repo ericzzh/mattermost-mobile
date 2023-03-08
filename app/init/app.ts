@@ -1,11 +1,6 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {DeviceEventEmitter} from 'react-native';
-import {ComponentDidAppearEvent, ComponentDidDisappearEvent, ModalDismissedEvent, Navigation, ScreenPoppedEvent} from 'react-native-navigation';
-
-import {Events, Screens} from '@constants';
-import {OVERLAY_SCREENS} from '@constants/screens';
 import DatabaseManager from '@database/manager';
 import {getAllServerCredentials} from '@init/credentials';
 import {initialLaunch} from '@init/launch';
@@ -16,10 +11,24 @@ import NetworkManager from '@managers/network_manager';
 import SessionManager from '@managers/session_manager';
 import WebsocketManager from '@managers/websocket_manager';
 import {registerScreens} from '@screens/index';
-import NavigationStore from '@store/navigation_store';
+import {registerNavigationListeners} from '@screens/navigation';
 
 let alreadyInitialized = false;
 let serverCredentials: ServerCredential[];
+
+// Fallback Polyfill for Promise.allSettle
+Promise.allSettled = Promise.allSettled || (<T>(promises: Array<Promise<T>>) => Promise.all(
+    promises.map((p) => p.
+        then((value) => ({
+            status: 'fulfilled',
+            value,
+        })).
+        catch((reason) => ({
+            status: 'rejected',
+            reason,
+        })),
+    ),
+));
 
 export async function initialize() {
     if (!alreadyInitialized) {
@@ -38,62 +47,11 @@ export async function initialize() {
 
 export async function start() {
     await initialize();
-    await WebsocketManager.init(serverCredentials);
 
     PushNotifications.init(serverCredentials.length > 0);
 
     registerNavigationListeners();
     registerScreens();
+    await WebsocketManager.init(serverCredentials);
     initialLaunch();
-}
-
-function registerNavigationListeners() {
-    Navigation.events().registerComponentDidAppearListener(screenDidAppearListener);
-    Navigation.events().registerComponentDidDisappearListener(screenDidDisappearListener);
-    Navigation.events().registerComponentWillAppearListener(screenWillAppear);
-    Navigation.events().registerScreenPoppedListener(screenPoppedListener);
-    Navigation.events().registerModalDismissedListener(modalDismissedListener);
-}
-
-function screenWillAppear({componentId}: ComponentDidAppearEvent) {
-    if (componentId === Screens.HOME) {
-        DeviceEventEmitter.emit(Events.TAB_BAR_VISIBLE, true);
-    } else if ([Screens.EDIT_POST, Screens.THREAD].includes(componentId)) {
-        DeviceEventEmitter.emit(Events.PAUSE_KEYBOARD_TRACKING_VIEW, true);
-    }
-}
-
-function screenDidAppearListener({componentId, componentType}: ComponentDidAppearEvent) {
-    if (!OVERLAY_SCREENS.has(componentId) && componentType === 'Component') {
-        NavigationStore.addNavigationComponentId(componentId);
-    }
-}
-
-function screenDidDisappearListener({componentId}: ComponentDidDisappearEvent) {
-    if (componentId !== Screens.HOME) {
-        if ([Screens.EDIT_POST, Screens.THREAD].includes(componentId)) {
-            DeviceEventEmitter.emit(Events.PAUSE_KEYBOARD_TRACKING_VIEW, false);
-        }
-
-        if (NavigationStore.getNavigationTopComponentId() === Screens.HOME) {
-            DeviceEventEmitter.emit(Events.TAB_BAR_VISIBLE, true);
-        }
-    }
-}
-
-function screenPoppedListener({componentId}: ScreenPoppedEvent) {
-    NavigationStore.removeNavigationComponentId(componentId);
-    if (NavigationStore.getNavigationTopComponentId() === Screens.HOME) {
-        DeviceEventEmitter.emit(Events.TAB_BAR_VISIBLE, true);
-    }
-}
-
-function modalDismissedListener({componentId}: ModalDismissedEvent) {
-    const topScreen = NavigationStore.getNavigationTopComponentId();
-    const topModal = NavigationStore.getNavigationTopModalId();
-    const toRemove = topScreen === topModal ? topModal : componentId;
-    NavigationStore.removeNavigationModal(toRemove);
-    if (NavigationStore.getNavigationTopComponentId() === Screens.HOME) {
-        DeviceEventEmitter.emit(Events.TAB_BAR_VISIBLE, true);
-    }
 }

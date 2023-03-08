@@ -31,8 +31,9 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme) => {
             elevation: 3,
         },
         shadow: {
+            backgroundColor: theme.centerChannelBg,
             shadowColor: '#000',
-            shadowOpacity: 0.12,
+            shadowOpacity: 1,
             shadowRadius: 6,
             shadowOffset: {
                 width: 0,
@@ -115,7 +116,7 @@ const Autocomplete = ({
     }, [growDown, position]);
 
     const containerStyles = useMemo(() => {
-        const s = [style.base, containerAnimatedStyle];
+        const s: StyleProp<ViewStyle> = [style.base, containerAnimatedStyle];
         if (hasElements) {
             s.push(style.borders);
         }

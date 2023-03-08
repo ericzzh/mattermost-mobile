@@ -5,10 +5,11 @@ import React, {useCallback} from 'react';
 import {ScrollView, View} from 'react-native';
 import {Edge, SafeAreaView} from 'react-native-safe-area-context';
 
-import {useServerUrl} from '@app/context/server';
 import ChannelInfoEnableCalls from '@calls/components/channel_info_enable_calls';
 import ChannelActions from '@components/channel_actions';
+import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
+import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
 import {dismissModal} from '@screens/navigation';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
@@ -19,14 +20,15 @@ import Extra from './extra';
 import Options from './options';
 import Title from './title';
 
+import type {AvailableScreens} from '@typings/screens/navigation';
+
 type Props = {
     channelId: string;
     closeButtonId: string;
-    componentId: string;
+    componentId: AvailableScreens;
     type?: ChannelType;
     canEnableDisableCalls: boolean;
     isCallsEnabledInChannel: boolean;
-    isCallsFeatureRestricted: boolean;
 }
 
 const edges: Edge[] = ['bottom', 'left', 'right'];
@@ -53,18 +55,21 @@ const ChannelInfo = ({
     type,
     canEnableDisableCalls,
     isCallsEnabledInChannel,
-    isCallsFeatureRestricted,
 }: Props) => {
     const theme = useTheme();
     const serverUrl = useServerUrl();
     const styles = getStyleSheet(theme);
-    const callsAvailable = isCallsEnabledInChannel && !isCallsFeatureRestricted;
+
+    // NOTE: isCallsEnabledInChannel will be true/false (not undefined) based on explicit state + the DefaultEnabled system setting
+    //   which comes from observeIsCallsEnabledInChannel
+    const callsAvailable = isCallsEnabledInChannel;
 
     const onPressed = useCallback(() => {
         return dismissModal({componentId});
     }, [componentId]);
 
     useNavButtonPressed(closeButtonId, componentId, onPressed, []);
+    useAndroidHardwareBackHandler(componentId, onPressed);
 
     return (
         <SafeAreaView
@@ -97,7 +102,7 @@ const ChannelInfo = ({
                     callsEnabled={callsAvailable}
                 />
                 <View style={styles.separator}/>
-                {canEnableDisableCalls && !isCallsFeatureRestricted &&
+                {canEnableDisableCalls &&
                     <>
                         <ChannelInfoEnableCalls
                             channelId={channelId}

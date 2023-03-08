@@ -6,8 +6,9 @@ import withObservables from '@nozbe/with-observables';
 import {of as of$} from 'rxjs';
 import {switchMap} from 'rxjs/operators';
 
+import {observeChannel} from '@queries/servers/channel';
 import {observePost} from '@queries/servers/post';
-import {observeCurrentTeamId, observeCurrentUserId} from '@queries/servers/system';
+import {observeCurrentTeamId} from '@queries/servers/system';
 import {queryMyTeamsByIds, queryTeamByName} from '@queries/servers/team';
 import {observeIsCRTEnabled} from '@queries/servers/thread';
 
@@ -32,7 +33,7 @@ const enhance = withObservables([], ({database, postId, teamName}: OwnProps) => 
 
     return {
         channel: post.pipe(
-            switchMap((p) => (p ? p.channel.observe() : of$(undefined))),
+            switchMap((p) => (p ? observeChannel(database, p.channelId) : of$(undefined))),
         ),
         rootId: post.pipe(
             switchMap((p) => of$(p?.rootId)),
@@ -42,7 +43,6 @@ const enhance = withObservables([], ({database, postId, teamName}: OwnProps) => 
             switchMap((ms) => of$(Boolean(ms?.[0]))),
         ),
         currentTeamId: observeCurrentTeamId(database),
-        currentUserId: observeCurrentUserId(database),
         isCRTEnabled: observeIsCRTEnabled(database),
     };
 });

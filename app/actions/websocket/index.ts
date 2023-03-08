@@ -1,11 +1,13 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {DeviceEventEmitter} from 'react-native';
-
-import {switchToChannelById} from '@actions/remote/channel';
+import {markChannelAsViewed} from '@actions/local/channel';
+import {dataRetentionCleanup} from '@actions/local/systems';
+import {markChannelAsRead} from '@actions/remote/channel';
+import {handleEntryAfterLoadNavigation, registerDeviceToken} from '@actions/remote/entry/common';
 import {deferredAppEntryActions, entry} from '@actions/remote/entry/gql_common';
-import {fetchStatusByIds} from '@actions/remote/user';
+import {fetchPostsForChannel, fetchPostThread} from '@actions/remote/post';
+import {autoUpdateTimezone} from '@actions/remote/user';
 import {loadConfigAndCalls} from '@calls/actions/calls';
 import {
     handleCallChannelDisabled,
@@ -27,26 +29,26 @@ import {
     handleCallUserVoiceOn,
 } from '@calls/connection/websocket_event_handlers';
 import {isSupportedServerCalls} from '@calls/utils';
-import {Events, Screens, WebsocketEvents} from '@constants';
+import {Screens, WebsocketEvents} from '@constants';
 import {SYSTEM_IDENTIFIERS} from '@constants/database';
 import DatabaseManager from '@database/manager';
 import AppsManager from '@managers/apps_manager';
-import {getActiveServerUrl, getActiveServer} from '@queries/app/servers';
-import {getCurrentChannel} from '@queries/servers/channel';
+import {getLastPostInThread} from '@queries/servers/post';
 import {
     getConfig,
-    getCurrentUserId,
+    getCurrentChannelId,
+    getCurrentTeamId,
     getLicense,
     getWebSocketLastDisconnected,
     resetWebSocketLastDisconnected,
-    setCurrentTeamAndChannelId,
 } from '@queries/servers/system';
-import {getCurrentTeam} from '@queries/servers/team';
+import {getIsCRTEnabled} from '@queries/servers/thread';
 import {getCurrentUser} from '@queries/servers/user';
-import {dismissAllModals, popToRoot} from '@screens/navigation';
+import EphemeralStore from '@store/ephemeral_store';
 import NavigationStore from '@store/navigation_store';
+import {setTeamLoading} from '@store/team_load_store';
 import {isTablet} from '@utils/helpers';
-import {logInfo} from '@utils/log';
+import {logDebug, logInfo} from '@utils/log';
 
 import {handleCategoryCreatedEvent, handleCategoryDeletedEvent, handleCategoryOrderUpdatedEvent, handleCategoryUpdatedEvent} from './category';
 import {handleChannelConvertedEvent, handleChannelCreatedEvent,
@@ -65,40 +67,18 @@ import {handlePreferenceChangedEvent, handlePreferencesChangedEvent, handlePrefe
 import {handleAddCustomEmoji, handleReactionRemovedFromPostEvent, handleReactionAddedToPostEvent} from './reactions';
 import {handleUserRoleUpdatedEvent, handleTeamMemberRoleUpdatedEvent, handleRoleUpdatedEvent} from './roles';
 import {handleLicenseChangedEvent, handleConfigChangedEvent} from './system';
-import {handleLeaveTeamEvent, handleUserAddedToTeamEvent, handleUpdateTeamEvent} from './teams';
+import {handleLeaveTeamEvent, handleUserAddedToTeamEvent, handleUpdateTeamEvent, handleTeamArchived, handleTeamRestored} from './teams';
 import {handleThreadUpdatedEvent, handleThreadReadChangedEvent, handleThreadFollowChangedEvent} from './threads';
 import {handleUserUpdatedEvent, handleUserTypingEvent} from './users';
 
-// ESR: 5.37
-const alreadyConnected = new Set<string>();
-
 export async function handleFirstConnect(serverUrl: string) {
-    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
-    if (!operator) {
-        return;
-    }
-    const {database} = operator;
-    const config = await getConfig(database);
-    const lastDisconnect = await getWebSocketLastDisconnected(database);
-
-    // ESR: 5.37
-    if (lastDisconnect && config?.EnableReliableWebSockets !== 'true' && alreadyConnected.has(serverUrl)) {
-        handleReconnect(serverUrl);
-        return;
-    }
-
-    alreadyConnected.add(serverUrl);
-    resetWebSocketLastDisconnected(operator);
-    fetchStatusByIds(serverUrl, ['me']);
-
-    if (isSupportedServerCalls(config?.Version)) {
-        const currentUserId = await getCurrentUserId(database);
-        loadConfigAndCalls(serverUrl, currentUserId);
-    }
+    registerDeviceToken(serverUrl);
+    autoUpdateTimezone(serverUrl);
+    return doReconnect(serverUrl);
 }
 
-export function handleReconnect(serverUrl: string) {
-    doReconnect(serverUrl);
+export async function handleReconnect(serverUrl: string) {
+    return doReconnect(serverUrl);
 }
 
 export async function handleClose(serverUrl: string, lastDisconnect: number) {
@@ -120,12 +100,12 @@ export async function handleClose(serverUrl: string, lastDisconnect: number) {
 async function doReconnect(serverUrl: string) {
     const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
     if (!operator) {
-        return;
+        return new Error('cannot find server database');
     }
 
     const appDatabase = DatabaseManager.appDatabase?.database;
     if (!appDatabase) {
-        return;
+        return new Error('cannot find app database');
     }
 
     const {database} = operator;
@@ -133,52 +113,34 @@ async function doReconnect(serverUrl: string) {
     const lastDisconnectedAt = await getWebSocketLastDisconnected(database);
     resetWebSocketLastDisconnected(operator);
 
-    const currentTeam = await getCurrentTeam(database);
-    const currentChannel = await getCurrentChannel(database);
-    const currentActiveServerUrl = await getActiveServerUrl();
+    const currentTeamId = await getCurrentTeamId(database);
+    const currentChannelId = await getCurrentChannelId(database);
 
-    const entryData = await entry(serverUrl, currentTeam?.id, currentChannel?.id, lastDisconnectedAt);
+    setTeamLoading(serverUrl, true);
+    const entryData = await entry(serverUrl, currentTeamId, currentChannelId, lastDisconnectedAt);
     if ('error' in entryData) {
-        if (serverUrl === currentActiveServerUrl) {
-            DeviceEventEmitter.emit(Events.FETCHING_POSTS, false);
-        }
-        return;
+        setTeamLoading(serverUrl, false);
+        return entryData.error;
     }
     const {models, initialTeamId, initialChannelId, prefData, teamData, chData} = entryData;
 
-    let switchedToChannel = false;
-
-    // if no longer a member of the current team or the current channel
-    if (initialTeamId !== currentTeam?.id || initialChannelId !== currentChannel?.id) {
-        const currentServer = await getActiveServer();
-        const isChannelScreenMounted = NavigationStore.getNavigationComponents().includes(Screens.CHANNEL);
-        if (serverUrl === currentServer?.url) {
-            if (currentTeam && initialTeamId !== currentTeam.id) {
-                DeviceEventEmitter.emit(Events.LEAVE_TEAM, {displayName: currentTeam.displayName});
-                await dismissAllModals();
-                await popToRoot();
-            } else if (currentChannel && initialChannelId !== currentChannel.id && isChannelScreenMounted) {
-                DeviceEventEmitter.emit(Events.LEAVE_CHANNEL, {displayName: currentChannel?.displayName});
-                await dismissAllModals();
-                await popToRoot();
-            }
-
-            const tabletDevice = await isTablet();
-
-            if (tabletDevice && initialChannelId) {
-                switchedToChannel = true;
-                switchToChannelById(serverUrl, initialChannelId, initialTeamId);
-            } else {
-                setCurrentTeamAndChannelId(operator, initialTeamId, initialChannelId);
-            }
-        } else {
-            setCurrentTeamAndChannelId(operator, initialTeamId, initialChannelId);
-        }
-    }
+    await handleEntryAfterLoadNavigation(serverUrl, teamData.memberships || [], chData?.memberships || [], currentTeamId || '', currentChannelId || '', initialTeamId, initialChannelId);
 
     const dt = Date.now();
-    await operator.batchRecords(models);
+    if (models?.length) {
+        await operator.batchRecords(models, 'doReconnect');
+    }
+
+    const tabletDevice = await isTablet();
+    if (tabletDevice && initialChannelId === currentChannelId) {
+        await markChannelAsRead(serverUrl, initialChannelId);
+        markChannelAsViewed(serverUrl, initialChannelId);
+    }
+
     logInfo('WEBSOCKET RECONNECT MODELS BATCHING TOOK', `${Date.now() - dt}ms`);
+    setTeamLoading(serverUrl, false);
+
+    await fetchPostDataIfNeeded(serverUrl);
 
     const {id: currentUserId, locale: currentUserLocale} = (await getCurrentUser(database))!;
     const license = await getLicense(database);
@@ -188,9 +150,12 @@ async function doReconnect(serverUrl: string) {
         loadConfigAndCalls(serverUrl, currentUserId);
     }
 
-    await deferredAppEntryActions(serverUrl, lastDisconnectedAt, currentUserId, currentUserLocale, prefData.preferences, config, license, teamData, chData, initialTeamId, switchedToChannel ? initialChannelId : undefined);
+    await deferredAppEntryActions(serverUrl, lastDisconnectedAt, currentUserId, currentUserLocale, prefData.preferences, config, license, teamData, chData, initialTeamId);
+
+    dataRetentionCleanup(serverUrl);
 
     AppsManager.refreshAppBindings(serverUrl);
+    return undefined;
 }
 
 export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
@@ -336,6 +301,14 @@ export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
             handleOpenDialogEvent(serverUrl, msg);
             break;
 
+        case WebsocketEvents.DELETE_TEAM:
+            handleTeamArchived(serverUrl, msg);
+            break;
+
+        case WebsocketEvents.RESTORE_TEAM:
+            handleTeamRestored(serverUrl, msg);
+            break;
+
         case WebsocketEvents.THREAD_UPDATED:
             handleThreadUpdatedEvent(serverUrl, msg);
             break;
@@ -425,5 +398,53 @@ export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
             break;
         case WebsocketEvents.GROUP_DISSOCIATED_TO_CHANNEL:
             break;
+
+        // Plugins
+        case WebsocketEvents.PLUGIN_STATUSES_CHANGED:
+        case WebsocketEvents.PLUGIN_ENABLED:
+        case WebsocketEvents.PLUGIN_DISABLED:
+            // Do nothing, this event doesn't need logic in the mobile app
+            break;
+    }
+}
+
+async function fetchPostDataIfNeeded(serverUrl: string) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const currentChannelId = await getCurrentChannelId(database);
+        const isCRTEnabled = await getIsCRTEnabled(database);
+        const mountedScreens = NavigationStore.getScreensInStack();
+        const isChannelScreenMounted = mountedScreens.includes(Screens.CHANNEL);
+        const isThreadScreenMounted = mountedScreens.includes(Screens.THREAD);
+        const tabletDevice = await isTablet();
+
+        if (isCRTEnabled && isThreadScreenMounted) {
+            // Fetch new posts in the thread only when CRT is enabled,
+            // for non-CRT fetchPostsForChannel includes posts in the thread
+            const rootId = EphemeralStore.getCurrentThreadId();
+            if (rootId) {
+                const lastPost = await getLastPostInThread(database, rootId);
+                if (lastPost) {
+                    if (lastPost) {
+                        const options: FetchPaginatedThreadOptions = {};
+                        options.fromCreateAt = lastPost.createAt;
+                        options.fromPost = lastPost.id;
+                        options.direction = 'down';
+                        await fetchPostThread(serverUrl, rootId, options);
+                    }
+                }
+            }
+        }
+
+        if (currentChannelId && (isChannelScreenMounted || tabletDevice)) {
+            await fetchPostsForChannel(serverUrl, currentChannelId);
+            markChannelAsRead(serverUrl, currentChannelId);
+            if (!EphemeralStore.wasNotificationTapped()) {
+                markChannelAsViewed(serverUrl, currentChannelId, true);
+            }
+            EphemeralStore.setNotificationTapped(false);
+        }
+    } catch (error) {
+        logDebug('could not fetch needed post after WS reconnect', error);
     }
 }

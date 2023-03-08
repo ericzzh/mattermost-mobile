@@ -7,15 +7,16 @@ import {View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {fetchChannels, searchChannels} from '@actions/remote/channel';
-import ServerUserList from '@app/components/server_user_list';
-import {t} from '@app/i18n';
 import FormattedText from '@components/formatted_text';
 import SearchBar from '@components/search';
+import ServerUserList from '@components/server_user_list';
 import {General, View as ViewConstants} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {debounce} from '@helpers/api/general';
+import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import {t} from '@i18n';
 import {
     buildNavigationButton,
     popTopScreen, setButtons,
@@ -28,6 +29,8 @@ import ChannelListRow from './channel_list_row';
 import CustomList from './custom_list';
 import OptionListRow from './option_list_row';
 import SelectedOptions from './selected_options';
+
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 type DataType = DialogOption | Channel | UserProfile;
 type DataTypeList = DialogOption[] | Channel[] | UserProfile[];
@@ -115,7 +118,7 @@ export type Props = {
     selected: SelectedDialogValue;
     theme: Theme;
     teammateNameDisplay: string;
-    componentId: string;
+    componentId: AvailableScreens;
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
@@ -224,13 +227,22 @@ function IntegrationSelector(
         }
     }, [isMultiselect, dataSource, handleSelect]);
 
-    const handleRemoveOption = useCallback((item: Channel | DialogOption) => {
+    const handleRemoveOption = useCallback((item: Channel | DialogOption | UserProfile) => {
         const itemKey = extractItemKey(dataSource, item);
-        setMultiselectSelected((current) => {
-            const multiselectSelectedItems = {...current};
-            delete multiselectSelectedItems[itemKey];
-            return multiselectSelectedItems;
-        });
+
+        if (dataSource === ViewConstants.DATA_SOURCE_USERS) {
+            setSelectedIds((current) => {
+                const selectedIdItems = {...current};
+                delete selectedIdItems[itemKey];
+                return selectedIdItems;
+            });
+        } else {
+            setMultiselectSelected((current) => {
+                const multiselectSelectedItems = {...current};
+                delete multiselectSelectedItems[itemKey];
+                return multiselectSelectedItems;
+            });
+        }
     }, [dataSource]);
 
     const getChannels = useCallback(debounce(async () => {
@@ -335,6 +347,7 @@ function IntegrationSelector(
 
     // Effects
     useNavButtonPressed(SUBMIT_BUTTON_ID, componentId, onHandleMultiselectSubmit, [onHandleMultiselectSubmit]);
+    useAndroidHardwareBackHandler(componentId, close);
 
     useEffect(() => {
         return () => {
@@ -514,6 +527,7 @@ function IntegrationSelector(
                         term={term}
                         tutorialWatched={true}
                         handleSelectProfile={handleSelectProfile}
+                        selectedIds={selectedIds as {[id: string]: UserProfile}}
                     />
                 );
             default:

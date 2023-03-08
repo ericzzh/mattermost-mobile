@@ -5,10 +5,9 @@ import {Database, Model, Q, Query} from '@nozbe/watermelondb';
 import {of as of$} from 'rxjs';
 import {switchMap} from 'rxjs/operators';
 
-import {Preferences} from '@constants';
 import {MM_TABLES} from '@constants/database';
 
-import {queryPreferencesByCategoryAndName} from './preference';
+import {querySavedPostsPreferences} from './preference';
 import {observeUser} from './user';
 
 import type PostModel from '@typings/database/models/servers/post';
@@ -19,23 +18,30 @@ const {SERVER: {POST, POSTS_IN_CHANNEL, POSTS_IN_THREAD}} = MM_TABLES;
 
 export const prepareDeletePost = async (post: PostModel): Promise<Model[]> => {
     const preparedModels: Model[] = [post.prepareDestroyPermanently()];
-    const relations: Array<Query<Model>> = [post.drafts, post.postsInThread];
-    for await (const relation of relations) {
+    const relations: Array<Query<Model>> = [post.drafts, post.files, post.reactions];
+    for await (const models of relations) {
         try {
-            const model = await relation.fetch();
-            if (model) {
-                model.forEach((m) => preparedModels.push(m.prepareDestroyPermanently()));
-            }
+            models.forEach((m) => {
+                preparedModels.push(m.prepareDestroyPermanently());
+            });
         } catch {
             // Record not found, do nothing
         }
     }
 
-    const associatedChildren: Array<Query<Model>|undefined> = [post.files, post.reactions];
-    await Promise.all(associatedChildren.map(async (children) => {
-        const models = await children?.fetch();
-        models?.forEach((model) => preparedModels.push(model.prepareDestroyPermanently()));
-    }));
+    // If the post is a root post, delete the postsInThread model
+    if (!post.rootId) {
+        try {
+            const postsInThread = await post.postsInThread.fetch();
+            if (postsInThread) {
+                postsInThread.forEach((m) => {
+                    preparedModels.push(m.prepareDestroyPermanently());
+                });
+            }
+        } catch {
+            // Record not found, do nothing
+        }
+    }
 
     // If thread exists, delete thread, participants and threadsInTeam
     try {
@@ -74,11 +80,11 @@ export const observePost = (database: Database, postId: string) => {
 };
 
 export const observePostAuthor = (database: Database, post: PostModel) => {
-    return post.userId ? observeUser(database, post.userId) : of$(null);
+    return observeUser(database, post.userId);
 };
 
 export const observePostSaved = (database: Database, postId: string) => {
-    return queryPreferencesByCategoryAndName(database, Preferences.CATEGORY_SAVED_POST, postId).
+    return querySavedPostsPreferences(database, postId).
         observeWithColumns(['value']).pipe(
             switchMap(
                 (pref) => of$(Boolean(pref[0]?.value === 'true')),
@@ -126,8 +132,21 @@ export const getRecentPostsInThread = async (database: Database, rootId: string)
     return [];
 };
 
-export const queryPostsChunk = (database: Database, id: string, earliest: number, latest: number, inThread = false, includeDeleted = false) => {
-    const conditions: Q.Condition[] = [Q.where('create_at', Q.between(earliest, latest))];
+export const getLastPostInThread = async (database: Database, rootId: string) => {
+    const chunks = await queryPostsInThread(database, rootId, true, true).fetch();
+    if (chunks.length) {
+        const recent = chunks[0];
+        const post = await getPostById(database, rootId);
+        if (post) {
+            const posts = await queryPostsChunk(database, rootId, recent.earliest, recent.latest, true, true, 1).fetch();
+            return posts[0];
+        }
+    }
+    return undefined;
+};
+
+export const queryPostsChunk = (database: Database, id: string, earliest: number, latest: number, inThread = false, includeDeleted = false, limit = 0) => {
+    const conditions: Q.Where[] = [Q.where('create_at', Q.between(earliest, latest))];
     if (inThread) {
         conditions.push(Q.where('root_id', id));
     } else {
@@ -138,12 +157,18 @@ export const queryPostsChunk = (database: Database, id: string, earliest: number
         conditions.push(Q.where('delete_at', Q.eq(0)));
     }
 
-    return database.get<PostModel>(POST).query(
+    const clauses: Q.Clause[] = [
         Q.and(
             ...conditions,
         ),
         Q.sortBy('create_at', Q.desc),
-    );
+    ];
+
+    if (limit) {
+        clauses.push(Q.take(limit));
+    }
+
+    return database.get<PostModel>(POST).query(...clauses);
 };
 
 export const getRecentPostsInChannel = async (database: Database, channelId: string, includeDeleted = false) => {
@@ -190,9 +215,18 @@ export const queryPinnedPostsInChannel = (database: Database, channelId: string)
             Q.where('channel_id', channelId),
             Q.where('is_pinned', Q.eq(true)),
         ),
+        Q.sortBy('create_at', Q.asc),
     );
 };
 
 export const observePinnedPostsInChannel = (database: Database, channelId: string) => {
     return queryPinnedPostsInChannel(database, channelId).observe();
+};
+
+export const observeSavedPostsByIds = (database: Database, postIds: string[]) => {
+    return querySavedPostsPreferences(database).extend(
+        Q.where('name', Q.oneOf(postIds)),
+    ).observeWithColumns(['name']).pipe(
+        switchMap((prefs) => of$(new Set(prefs.map((p) => p.name)))),
+    );
 };

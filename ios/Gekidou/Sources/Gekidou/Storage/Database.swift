@@ -9,8 +9,6 @@ import Foundation
 import SQLite3
 import SQLite
 
-// TODO: This should be exposed to Objective-C in order to handle
-// any Database throwable methods.
 enum DatabaseError: Error {
     case OpenFailure(_ dbPath: String)
     case MultipleServers
@@ -45,6 +43,7 @@ public class Database: NSObject {
     internal var systemTable = Table("System")
     internal var teamTable = Table("Team")
     internal var myTeamTable = Table("MyTeam")
+    internal var teamMembershipTable = Table("TeamMembership")
     internal var channelTable = Table("Channel")
     internal var channelInfoTable = Table("ChannelInfo")
     internal var channelMembershipTable = Table("ChannelMembership")
@@ -60,7 +59,12 @@ public class Database: NSObject {
     internal var userTable = Table("User")
     internal var threadTable = Table("Thread")
     internal var threadParticipantTable = Table("ThreadParticipant")
+    internal var threadsInTeamTable = Table("ThreadsInTeam")
+    internal var teamThreadsSyncTable = Table("TeamThreadsSync")
     internal var configTable = Table("Config")
+    internal var preferenceTable = Table("Preference")
+    internal var categoryTable = Table("Category")
+    internal var categoryChannelTable = Table("CategoryChannel")
     
     @objc public static let `default` = Database()
     
@@ -118,7 +122,7 @@ public class Database: NSObject {
             return serverUrl!
         }
     
-        throw DatabaseError.NoResults(query.asSQL())
+        throw DatabaseError.NoResults(query.expression.description)
     }
     
     public func getServerUrlForServer(_ id: String) throws -> String {
@@ -134,7 +138,7 @@ public class Database: NSObject {
             }
         }
     
-        throw DatabaseError.NoResults(query.asSQL())
+        throw DatabaseError.NoResults(query.expression.description)
     }
     
     public func getAllActiveDatabases<T: Codable>() -> [T] {
@@ -201,7 +205,7 @@ public class Database: NSObject {
             return try Connection(path)
         }
         
-        throw DatabaseError.NoResults(query.asSQL())
+        throw DatabaseError.NoResults(query.expression.description)
     }
     
     internal func json(from object:Any?) -> String? {

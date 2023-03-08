@@ -1,14 +1,14 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {DeviceEventEmitter, Keyboard, View} from 'react-native';
-import {Navigation} from 'react-native-navigation';
+import React, {useCallback, useMemo, useState} from 'react';
+import {Keyboard, View} from 'react-native';
 
 import SearchBar from '@components/search';
-import {Events} from '@constants';
 import {useTheme} from '@context/theme';
+import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useKeyboardHeight} from '@hooks/device';
+import useNavButtonPressed from '@hooks/navigation_button_pressed';
 import {dismissModal} from '@screens/navigation';
 import {changeOpacity, getKeyboardAppearanceFromTheme, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
@@ -17,9 +17,11 @@ import FilteredList from './filtered_list';
 import QuickOptions from './quick_options';
 import UnfilteredList from './unfiltered_list';
 
+import type {AvailableScreens} from '@typings/screens/navigation';
+
 type Props = {
     closeButtonId: string;
-    componentId: string;
+    componentId: AvailableScreens;
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -57,7 +59,6 @@ const FindChannels = ({closeButtonId, componentId}: Props) => {
 
     const close = useCallback(() => {
         Keyboard.dismiss();
-        DeviceEventEmitter.emit(Events.PAUSE_KEYBOARD_TRACKING_VIEW, false);
         return dismissModal({componentId});
     }, []);
 
@@ -72,15 +73,8 @@ const FindChannels = ({closeButtonId, componentId}: Props) => {
         }
     }, []);
 
-    useEffect(() => {
-        const navigationEvents = Navigation.events().registerNavigationButtonPressedListener(({buttonId}) => {
-            if (closeButtonId && buttonId === closeButtonId) {
-                close();
-            }
-        });
-
-        return () => navigationEvents.remove();
-    }, []);
+    useNavButtonPressed(closeButtonId, componentId, close, []);
+    useAndroidHardwareBackHandler(componentId, close);
 
     return (
         <View

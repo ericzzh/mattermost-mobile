@@ -2,8 +2,7 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {BackHandler, DeviceEventEmitter, LayoutChangeEvent, NativeEventSubscription, StyleSheet, View} from 'react-native';
-import {KeyboardTrackingViewRef} from 'react-native-keyboard-tracking-view';
+import {LayoutChangeEvent, StyleSheet, View} from 'react-native';
 import {Edge, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import CurrentCallBar from '@calls/components/current_call_bar';
@@ -11,30 +10,36 @@ import FloatingCallContainer from '@calls/components/floating_call_container';
 import JoinCallBanner from '@calls/components/join_call_banner';
 import FreezeScreen from '@components/freeze_screen';
 import PostDraft from '@components/post_draft';
-import {Events} from '@constants';
+import {Screens} from '@constants';
 import {ACCESSORIES_CONTAINER_NATIVE_ID} from '@constants/post_draft';
+import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useChannelSwitch} from '@hooks/channel_switch';
-import {useAppState, useIsTablet} from '@hooks/device';
+import {useIsTablet} from '@hooks/device';
 import {useDefaultHeaderHeight} from '@hooks/header';
+import {useKeyboardTrackingPaused} from '@hooks/keyboard_tracking';
 import {useTeamSwitch} from '@hooks/team_switch';
 import {popTopScreen} from '@screens/navigation';
 import EphemeralStore from '@store/ephemeral_store';
-import NavigationStore from '@store/navigation_store';
 
 import ChannelPostList from './channel_post_list';
 import ChannelHeader from './header';
 
+import type {AvailableScreens} from '@typings/screens/navigation';
+import type {KeyboardTrackingViewRef} from 'react-native-keyboard-tracking-view';
+
 type ChannelProps = {
     serverUrl: string;
     channelId: string;
-    componentId?: string;
+    componentId?: AvailableScreens;
     isCallInCurrentChannel: boolean;
     isInACall: boolean;
     isInCurrentChannelCall: boolean;
     isCallsEnabledInChannel: boolean;
+    isTabletView?: boolean;
 };
 
 const edges: Edge[] = ['left', 'right'];
+const trackKeyboardForScreens = [Screens.HOME, Screens.CHANNEL];
 
 const styles = StyleSheet.create({
     flex: {
@@ -50,8 +55,8 @@ const Channel = ({
     isInACall,
     isInCurrentChannelCall,
     isCallsEnabledInChannel,
+    isTabletView,
 }: ChannelProps) => {
-    const appState = useAppState();
     const isTablet = useIsTablet();
     const insets = useSafeAreaInsets();
     const [shouldRenderPosts, setShouldRenderPosts] = useState(false);
@@ -60,37 +65,13 @@ const Channel = ({
     const defaultHeight = useDefaultHeaderHeight();
     const postDraftRef = useRef<KeyboardTrackingViewRef>(null);
     const [containerHeight, setContainerHeight] = useState(0);
-
     const shouldRender = !switchingTeam && !switchingChannels && shouldRenderPosts && Boolean(channelId);
+    const handleBack = () => {
+        popTopScreen(componentId);
+    };
 
-    useEffect(() => {
-        const listener = DeviceEventEmitter.addListener(Events.PAUSE_KEYBOARD_TRACKING_VIEW, (pause: boolean) => {
-            if (pause) {
-                postDraftRef.current?.pauseTracking(channelId);
-                return;
-            }
-
-            postDraftRef.current?.resumeTracking(channelId);
-        });
-
-        return () => listener.remove();
-    }, []);
-
-    useEffect(() => {
-        let back: NativeEventSubscription|undefined;
-        if (!isTablet && componentId) {
-            back = BackHandler.addEventListener('hardwareBackPress', () => {
-                if (NavigationStore.getNavigationTopComponentId() === componentId) {
-                    popTopScreen(componentId);
-                    return true;
-                }
-
-                return false;
-            });
-        }
-
-        return () => back?.remove();
-    }, [componentId, isTablet]);
+    useKeyboardTrackingPaused(postDraftRef, channelId, trackKeyboardForScreens);
+    useAndroidHardwareBackHandler(componentId, handleBack);
 
     const marginTop = defaultHeight + (isTablet ? 0 : -insets.top);
     useEffect(() => {
@@ -146,13 +127,13 @@ const Channel = ({
                     componentId={componentId}
                     serverUrl={serverUrl}
                     callsEnabledInChannel={isCallsEnabledInChannel}
+                    isTabletView={isTabletView}
                 />
                 {shouldRender &&
                 <>
                     <View style={[styles.flex, {marginTop}]}>
                         <ChannelPostList
                             channelId={channelId}
-                            forceQueryAfterAppState={appState}
                             nativeID={channelId}
                             currentCallBarVisible={isInACall}
                             joinCallBannerVisible={showJoinCallBanner}

@@ -5,7 +5,6 @@ import React, {MutableRefObject, useCallback, useEffect, useRef} from 'react';
 import {useIntl} from 'react-intl';
 import {Keyboard, Platform, useWindowDimensions, View} from 'react-native';
 import Button from 'react-native-button';
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 
 import FloatingTextInput, {FloatingTextInputRef} from '@components/floating_text_input_label';
 import FormattedText from '@components/formatted_text';
@@ -15,6 +14,8 @@ import {t} from '@i18n';
 import {buttonBackgroundStyle, buttonTextStyle} from '@utils/buttonStyles';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
+
+import type {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 
 type Props = {
     autoFocus?: boolean;
@@ -26,6 +27,7 @@ type Props = {
     handleConnect: () => void;
     handleDisplayNameTextChanged: (text: string) => void;
     handleUrlTextChanged: (text: string) => void;
+    isModal?: boolean;
     keyboardAwareRef: MutableRefObject<KeyboardAwareScrollView | null>;
     theme: Theme;
     url?: string;
@@ -82,6 +84,7 @@ const ServerForm = ({
     handleConnect,
     handleDisplayNameTextChanged,
     handleUrlTextChanged,
+    isModal,
     keyboardAwareRef,
     theme,
     url = '',
@@ -96,7 +99,7 @@ const ServerForm = ({
 
     const focus = () => {
         if (Platform.OS === 'ios') {
-            let offsetY = 160;
+            let offsetY = isModal ? 120 : 160;
             if (isTablet) {
                 const {width, height} = dimensions;
                 const isLandscape = width > height;

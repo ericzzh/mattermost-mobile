@@ -7,6 +7,9 @@ import {Text} from 'react-native';
 
 import {updateMe} from '@actions/remote/user';
 import FloatingTextInput from '@components/floating_text_input_label';
+import SettingBlock from '@components/settings/block';
+import SettingOption from '@components/settings/option';
+import SettingSeparator from '@components/settings/separator';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
@@ -18,11 +21,8 @@ import {changeOpacity, getKeyboardAppearanceFromTheme, makeStyleSheetFromTheme} 
 import {typography} from '@utils/typography';
 import {getNotificationProps} from '@utils/user';
 
-import SettingBlock from '../setting_block';
-import SettingOption from '../setting_option';
-import SettingSeparator from '../settings_separator';
-
 import type UserModel from '@typings/database/models/servers/user';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 const mentionHeaderText = {
     id: t('notification_settings.mentions.keywords_mention'),
@@ -42,6 +42,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme) => {
             alignSelf: 'center',
             paddingHorizontal: 18.5,
         },
+        labelTextStyle: {left: 32},
         keywordLabelStyle: {
             paddingHorizontal: 18.5,
             marginTop: 4,
@@ -71,7 +72,7 @@ const getMentionProps = (currentUser: UserModel) => {
 };
 
 type MentionSectionProps = {
-    componentId: string;
+    componentId: AvailableScreens;
     currentUser: UserModel;
     isCRTEnabled: boolean;
 }
@@ -201,7 +202,7 @@ const MentionSettings = ({componentId, currentUser, isCRTEnabled}: MentionSectio
                     blurOnSubmit={true}
                     containerStyle={styles.containerStyle}
                     keyboardAppearance={getKeyboardAppearanceFromTheme(theme)}
-                    label={intl.formatMessage({id: 'notification_settings.mentions.keywords', defaultMessage: 'Enter other keywords'})}
+                    label={intl.formatMessage({id: 'notification_settings.mentions.keywords', defaultMessage: 'Keywords'})}
                     multiline={true}
                     onChangeText={onChangeText}
                     placeholder={intl.formatMessage({id: 'notification_settings.mentions..keywordsDescription', defaultMessage: 'Other words that trigger a mention'})}
@@ -213,6 +214,7 @@ const MentionSettings = ({componentId, currentUser, isCRTEnabled}: MentionSectio
                     theme={theme}
                     underlineColorAndroid='transparent'
                     value={mentionKeywords}
+                    labelTextStyle={styles.labelTextStyle}
                 />
                 <Text
                     style={styles.keywordLabelStyle}

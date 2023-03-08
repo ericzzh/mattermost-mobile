@@ -77,6 +77,13 @@ export const observeCurrentUserId = (database: Database): Observable<string> => 
     );
 };
 
+export const observeGlobalThreadsTab = (database: Database): Observable<string> => {
+    return querySystemValue(database, SYSTEM_IDENTIFIERS.GLOBAL_THREADS_TAB).observe().pipe(
+        switchMap((result) => (result.length ? result[0].observe() : of$({value: 'all'}))),
+        switchMap((model) => of$(model.value)),
+    );
+};
+
 export const getPushVerificationStatus = async (serverDatabase: Database): Promise<string> => {
     try {
         const status = await serverDatabase.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.PUSH_VERIFICATION_STATUS);
@@ -151,6 +158,50 @@ export const getConfigValue = async (database: Database, key: keyof ClientConfig
     return list.length ? list[0].value : undefined;
 };
 
+export const getLastGlobalDataRetentionRun = async (database: Database) => {
+    try {
+        const data = await database.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.LAST_DATA_RETENTION_RUN);
+        return data?.value || 0;
+    } catch {
+        return undefined;
+    }
+};
+
+export const getGlobalDataRetentionPolicy = async (database: Database) => {
+    try {
+        const data = await database.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.DATA_RETENTION_POLICIES);
+        return (data?.value || {}) as GlobalDataRetentionPolicy;
+    } catch {
+        return undefined;
+    }
+};
+
+export const getGranularDataRetentionPolicies = async (database: Database) => {
+    try {
+        const data = await database.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.GRANULAR_DATA_RETENTION_POLICIES);
+        return (data?.value || {
+            team: [],
+            channel: [],
+        }) as {
+            team: TeamDataRetentionPolicy[];
+            channel: ChannelDataRetentionPolicy[];
+        };
+    } catch {
+        return undefined;
+    }
+};
+
+export const getIsDataRetentionEnabled = async (database: Database) => {
+    const license = await getLicense(database);
+    if (!license || !Object.keys(license)?.length) {
+        return null;
+    }
+
+    const dataRetentionEnableMessageDeletion = await getConfigValue(database, 'DataRetentionEnableMessageDeletion');
+
+    return dataRetentionEnableMessageDeletion === 'true' && license?.IsLicensed === 'true' && license?.DataRetention === 'true';
+};
+
 export const observeConfig = (database: Database): Observable<ClientConfig | undefined> => {
     return database.get<ConfigModel>(CONFIG).query().observeWithColumns(['value']).pipe(
         switchMap((result) => of$(fromModelToClientConfig(result))),
@@ -175,9 +226,9 @@ export const observeIsCustomStatusExpirySupported = (database: Database) => {
     );
 };
 
-export const observeConfigBooleanValue = (database: Database, key: keyof ClientConfig) => {
+export const observeConfigBooleanValue = (database: Database, key: keyof ClientConfig, defaultValue = false) => {
     return observeConfigValue(database, key).pipe(
-        switchMap((v) => of$(v === 'true')),
+        switchMap((v) => of$(v ? v === 'true' : defaultValue)),
         distinctUntilChanged(),
     );
 };
@@ -277,7 +328,7 @@ export const getWebSocketLastDisconnected = async (serverDatabase: Database) => 
     }
 };
 
-export const observeWebsocket = (database: Database) => {
+export const observeWebsocketLastDisconnected = (database: Database) => {
     return querySystemValue(database, SYSTEM_IDENTIFIERS.WEBSOCKET).observe().pipe(
         switchMap((result) => (result.length ? result[0].observe() : of$({value: '0'}))),
         switchMap((model) => of$(parseInt(model.value || 0, 10) || 0)),
@@ -369,7 +420,7 @@ export async function setCurrentChannelId(operator: ServerDataOperator, channelI
     try {
         const models = await prepareCommonSystemValues(operator, {currentChannelId: channelId});
         if (models) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'setCurrentChannelId');
         }
 
         return {currentChannelId: channelId};
@@ -385,7 +436,7 @@ export async function setCurrentTeamAndChannelId(operator: ServerDataOperator, t
             currentTeamId: teamId,
         });
         if (models) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'setCurrentTeamAndChannelId');
         }
 
         return {currentTeamId: teamId, currentChannelId: channelId};
@@ -397,7 +448,13 @@ export async function setCurrentTeamAndChannelId(operator: ServerDataOperator, t
 export const observeLastUnreadChannelId = (database: Database): Observable<string> => {
     return querySystemValue(database, SYSTEM_IDENTIFIERS.LAST_UNREAD_CHANNEL_ID).observe().pipe(
         switchMap((result) => (result.length ? result[0].observe() : of$({value: ''}))),
-        switchMap((model) => of$(model.value)),
+        switchMap((model) => {
+            if (model.value) {
+                return of$(model.value);
+            }
+
+            return observeCurrentChannelId(database);
+        }),
     );
 };
 
@@ -454,16 +511,24 @@ export const observeLastDismissedAnnouncement = (database: Database) => {
 };
 
 export const observeCanUploadFiles = (database: Database) => {
-    const enableFileAttachments = observeConfigBooleanValue(database, 'EnableFileAttachments');
-    const enableMobileFileUpload = observeConfigBooleanValue(database, 'EnableMobileFileUpload');
+    const enableFileAttachments = observeConfigBooleanValue(database, 'EnableFileAttachments', true);
+    const enableMobileFileUpload = observeConfigBooleanValue(database, 'EnableMobileFileUpload', true);
     const license = observeLicense(database);
 
     return combineLatest([enableFileAttachments, enableMobileFileUpload, license]).pipe(
         switchMap(([efa, emfu, l]) => of$(
-            efa ||
-                (l?.IsLicensed !== 'true' && l?.Compliance !== 'true' && emfu),
-        ),
-        ),
+            efa &&
+                (l?.IsLicensed !== 'true' || l?.Compliance !== 'true' || emfu),
+        )),
+    );
+};
+
+export const observeCanDownloadFiles = (database: Database) => {
+    const enableMobileFileDownload = observeConfigBooleanValue(database, 'EnableMobileFileDownload', true);
+    const license = observeLicense(database);
+
+    return combineLatest([enableMobileFileDownload, license]).pipe(
+        switchMap(([emfd, l]) => of$((l?.IsLicensed !== 'true' || l?.Compliance !== 'true' || emfd))),
     );
 };
 

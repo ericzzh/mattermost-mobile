@@ -40,7 +40,7 @@ export const switchToGlobalThreads = async (serverUrl: string, teamId?: string, 
         models.push(...history);
 
         if (!prepareRecordsOnly) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'switchToGlobalThreads');
         }
 
         const isTabletDevice = await isTablet();
@@ -79,17 +79,25 @@ export const switchToThread = async (serverUrl: string, rootId: string, isFromNo
         const teamId = channel.teamId || currentTeamId;
 
         let switchingTeams = false;
-        if (currentTeamId !== teamId) {
+        if (currentTeamId === teamId) {
+            const models = await prepareCommonSystemValues(operator, {
+                currentChannelId: channel.id,
+            });
+            if (models.length) {
+                await operator.batchRecords(models, 'switchToThread');
+            }
+        } else {
             const modelPromises: Array<Promise<Model[]>> = [];
             switchingTeams = true;
             modelPromises.push(addTeamToTeamHistory(operator, teamId, true));
             const commonValues: PrepareCommonSystemValuesArgs = {
+                currentChannelId: channel.id,
                 currentTeamId: teamId,
             };
             modelPromises.push(prepareCommonSystemValues(operator, commonValues));
             const models = (await Promise.all(modelPromises)).flat();
             if (models.length) {
-                await operator.batchRecords(models);
+                await operator.batchRecords(models, 'switchToThread');
             }
         }
 
@@ -193,7 +201,7 @@ export async function createThreadFromNewPost(serverUrl: string, post: Post, pre
         }
 
         if (!prepareRecordsOnly) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'createThreadFromNewPost');
         }
 
         return {models};
@@ -249,7 +257,7 @@ export async function processReceivedThreads(serverUrl: string, threads: Thread[
         }
 
         if (!prepareRecordsOnly) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'processReceivedThreads');
         }
         return {models};
     } catch (error) {
@@ -269,7 +277,7 @@ export async function markTeamThreadsAsRead(serverUrl: string, teamId: string, p
             record.viewedAt = Date.now();
         }));
         if (!prepareRecordsOnly) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'markTeamThreadsAsRead');
         }
         return {models};
     } catch (error) {
@@ -292,7 +300,7 @@ export async function markThreadAsViewed(serverUrl: string, threadId: string, pr
         });
 
         if (!prepareRecordsOnly) {
-            await operator.batchRecords([thread]);
+            await operator.batchRecords([thread], 'markThreadAsViewed');
         }
 
         return {model: thread};
@@ -319,7 +327,7 @@ export async function updateThread(serverUrl: string, threadId: string, updatedT
             record.unreadReplies = updatedThread.unread_replies ?? record.unreadReplies;
         });
         if (!prepareRecordsOnly) {
-            await operator.batchRecords([model]);
+            await operator.batchRecords([model], 'updateThread');
         }
         return {model};
     } catch (error) {
@@ -333,7 +341,7 @@ export async function updateTeamThreadsSync(serverUrl: string, data: TeamThreads
         const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
         const models = await operator.handleTeamThreadsSync({data: [data], prepareRecordsOnly});
         if (!prepareRecordsOnly) {
-            await operator.batchRecords(models);
+            await operator.batchRecords(models, 'updateTeamThreadsSync');
         }
         return {models};
     } catch (error) {

@@ -1,19 +1,23 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Model} from '@nozbe/watermelondb';
 import {DeviceEventEmitter} from 'react-native';
 
 import {removeUserFromTeam as localRemoveUserFromTeam} from '@actions/local/team';
+import {PER_PAGE_DEFAULT} from '@client/rest/constants';
 import {Events} from '@constants';
 import DatabaseManager from '@database/manager';
 import NetworkManager from '@managers/network_manager';
+import {getActiveServerUrl} from '@queries/app/servers';
 import {prepareCategoriesAndCategoriesChannels} from '@queries/servers/categories';
 import {prepareMyChannelsForTeam, getDefaultChannelForTeam} from '@queries/servers/channel';
 import {prepareCommonSystemValues, getCurrentTeamId, getCurrentUserId} from '@queries/servers/system';
-import {addTeamToTeamHistory, prepareDeleteTeam, prepareMyTeams, getNthLastChannelFromTeam, queryTeamsById, syncTeamTable} from '@queries/servers/team';
+import {addTeamToTeamHistory, prepareDeleteTeam, prepareMyTeams, getNthLastChannelFromTeam, queryTeamsById, getLastTeam, getTeamById, removeTeamFromTeamHistory, queryMyTeams} from '@queries/servers/team';
+import {dismissAllModals, popToRoot} from '@screens/navigation';
 import EphemeralStore from '@store/ephemeral_store';
+import {setTeamLoading} from '@store/team_load_store';
 import {isTablet} from '@utils/helpers';
+import {logDebug} from '@utils/log';
 
 import {fetchMyChannelsForTeam, switchToChannelById} from './channel';
 import {fetchGroupsForTeamIfConstrained} from './groups';
@@ -21,7 +25,9 @@ import {fetchPostsForChannel, fetchPostsForUnreadChannels} from './post';
 import {fetchRolesIfNeeded} from './role';
 import {forceLogoutIfNecessary} from './session';
 
+import type {Client} from '@client/rest';
 import type ClientError from '@client/rest/error';
+import type {Model} from '@nozbe/watermelondb';
 
 export type MyTeamsRequest = {
     teams?: Team[];
@@ -53,12 +59,16 @@ export async function addUserToTeam(serverUrl: string, teamId: string, userId: s
         return {error};
     }
 
+    let loadEventSent = false;
     try {
         EphemeralStore.startAddingToTeam(teamId);
         const team = await client.getTeam(teamId);
         const member = await client.addToTeam(teamId, userId);
 
         if (!fetchOnly) {
+            setTeamLoading(serverUrl, true);
+            loadEventSent = true;
+
             fetchRolesIfNeeded(serverUrl, member.roles.split(' '));
             const {channels, memberships: channelMembers, categories} = await fetchMyChannelsForTeam(serverUrl, teamId, false, 0, true);
             const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
@@ -76,7 +86,9 @@ export async function addUserToTeam(serverUrl: string, teamId: string, userId: s
                     prepareCategoriesAndCategoriesChannels(operator, categories || [], true),
                 ])).flat();
 
-                await operator.batchRecords(models);
+                await operator.batchRecords(models, 'addUserToTeam');
+                setTeamLoading(serverUrl, false);
+                loadEventSent = false;
 
                 if (await isTablet()) {
                     const channel = await getDefaultChannelForTeam(operator.database, teamId);
@@ -84,12 +96,67 @@ export async function addUserToTeam(serverUrl: string, teamId: string, userId: s
                         fetchPostsForChannel(serverUrl, channel.id);
                     }
                 }
+            } else {
+                setTeamLoading(serverUrl, false);
+                loadEventSent = false;
             }
         }
         EphemeralStore.finishAddingToTeam(teamId);
+        updateCanJoinTeams(serverUrl);
         return {member};
     } catch (error) {
+        if (loadEventSent) {
+            setTeamLoading(serverUrl, false);
+        }
         EphemeralStore.finishAddingToTeam(teamId);
+        forceLogoutIfNecessary(serverUrl, error as ClientError);
+        return {error};
+    }
+}
+
+export async function addUsersToTeam(serverUrl: string, teamId: string, userIds: string[], fetchOnly = false) {
+    try {
+        const client = NetworkManager.getClient(serverUrl);
+        const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        EphemeralStore.startAddingToTeam(teamId);
+
+        const members = await client.addUsersToTeamGracefully(teamId, userIds);
+
+        if (!fetchOnly) {
+            const teamMemberships: TeamMembership[] = [];
+            const roles = [];
+
+            for (const {member} of members) {
+                teamMemberships.push(member);
+                roles.push(...member.roles.split(' '));
+            }
+
+            fetchRolesIfNeeded(serverUrl, Array.from(new Set(roles)));
+
+            if (operator) {
+                await operator.handleTeamMemberships({teamMemberships, prepareRecordsOnly: true});
+            }
+        }
+
+        EphemeralStore.finishAddingToTeam(teamId);
+        return {members};
+    } catch (error) {
+        if (EphemeralStore.isAddingToTeam(teamId)) {
+            EphemeralStore.finishAddingToTeam(teamId);
+        }
+
+        forceLogoutIfNecessary(serverUrl, error as ClientError);
+        return {error};
+    }
+}
+
+export async function sendEmailInvitesToTeam(serverUrl: string, teamId: string, emails: string[]) {
+    try {
+        const client = NetworkManager.getClient(serverUrl);
+        const members = await client.sendEmailInvitesToTeamGracefully(teamId, emails);
+
+        return {members};
+    } catch (error) {
         forceLogoutIfNecessary(serverUrl, error as ClientError);
         return {error};
     }
@@ -132,7 +199,7 @@ export async function fetchMyTeams(serverUrl: string, fetchOnly = false): Promis
                     const models = await Promise.all(modelPromises);
                     const flattenedModels = models.flat();
                     if (flattenedModels.length > 0) {
-                        await operator.batchRecords(flattenedModels);
+                        await operator.batchRecords(flattenedModels, 'fetchMyTeams');
                     }
                 }
             }
@@ -166,7 +233,7 @@ export async function fetchMyTeam(serverUrl: string, teamId: string, fetchOnly =
                     const models = await Promise.all(modelPromises);
                     const flattenedModels = models.flat();
                     if (flattenedModels?.length > 0) {
-                        await operator.batchRecords(flattenedModels);
+                        await operator.batchRecords(flattenedModels, 'fetchMyTeam');
                     }
                 }
             }
@@ -179,25 +246,82 @@ export async function fetchMyTeam(serverUrl: string, teamId: string, fetchOnly =
     }
 }
 
-export const fetchAllTeams = async (serverUrl: string, fetchOnly = false): Promise<MyTeamsRequest> => {
-    let client;
+export const fetchAllTeams = async (serverUrl: string, page = 0, perPage = PER_PAGE_DEFAULT): Promise<{teams?: Team[]; error?: any}> => {
     try {
-        client = NetworkManager.getClient(serverUrl);
-    } catch (error) {
-        return {error};
-    }
-
-    try {
-        const teams = await client.getTeams();
-        if (!fetchOnly) {
-            const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
-            if (operator) {
-                syncTeamTable(operator, teams);
-            }
-        }
-
+        const client = NetworkManager.getClient(serverUrl);
+        const teams = await client.getTeams(page, perPage);
         return {teams};
     } catch (error) {
+        forceLogoutIfNecessary(serverUrl, error as ClientError);
+        return {error};
+    }
+};
+
+const recCanJoinTeams = async (client: Client, myTeamsIds: Set<string>, page: number): Promise<boolean> => {
+    const fetchedTeams = await client.getTeams(page, PER_PAGE_DEFAULT);
+    if (fetchedTeams.find((t) => !myTeamsIds.has(t.id) && t.delete_at === 0)) {
+        return true;
+    }
+
+    if (fetchedTeams.length === PER_PAGE_DEFAULT) {
+        return recCanJoinTeams(client, myTeamsIds, page + 1);
+    }
+
+    return false;
+};
+
+const LOAD_MORE_THRESHOLD = 10;
+export async function fetchTeamsForComponent(
+    serverUrl: string,
+    page: number,
+    joinedIds?: Set<string>,
+    alreadyLoaded: Team[] = [],
+): Promise<{teams: Team[]; hasMore: boolean; page: number}> {
+    let hasMore = true;
+    const {teams, error} = await fetchAllTeams(serverUrl, page, PER_PAGE_DEFAULT);
+    if (error || !teams || teams.length < PER_PAGE_DEFAULT) {
+        hasMore = false;
+    }
+
+    if (error) {
+        return {teams: alreadyLoaded, hasMore, page};
+    }
+
+    if (teams?.length) {
+        const notJoinedTeams = joinedIds ? teams.filter((t) => !joinedIds.has(t.id)) : teams;
+        alreadyLoaded.push(...notJoinedTeams);
+
+        if (teams.length < PER_PAGE_DEFAULT) {
+            hasMore = false;
+        }
+
+        if (
+            hasMore &&
+            (alreadyLoaded.length > LOAD_MORE_THRESHOLD)
+        ) {
+            return fetchTeamsForComponent(serverUrl, page + 1, joinedIds, alreadyLoaded);
+        }
+
+        return {teams: alreadyLoaded, hasMore, page: page + 1};
+    }
+
+    return {teams: alreadyLoaded, hasMore: false, page};
+}
+
+export const updateCanJoinTeams = async (serverUrl: string) => {
+    try {
+        const client = NetworkManager.getClient(serverUrl);
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+
+        const myTeams = await queryMyTeams(database).fetch();
+        const myTeamsIds = new Set(myTeams.map((m) => m.id));
+
+        const canJoin = await recCanJoinTeams(client, myTeamsIds, 0);
+
+        EphemeralStore.setCanJoinOtherTeams(serverUrl, canJoin);
+        return {};
+    } catch (error) {
+        EphemeralStore.setCanJoinOtherTeams(serverUrl, false);
         forceLogoutIfNecessary(serverUrl, error as ClientError);
         return {error};
     }
@@ -238,7 +362,7 @@ export async function fetchTeamByName(serverUrl: string, teamName: string, fetch
             const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
             if (operator) {
                 const models = await operator.handleTeam({teams: [team], prepareRecordsOnly: true});
-                await operator.batchRecords(models);
+                await operator.batchRecords(models, 'fetchTeamByName');
             }
         }
 
@@ -272,7 +396,7 @@ export const removeUserFromTeam = async (serverUrl: string, teamId: string, user
 
         if (!fetchOnly) {
             localRemoveUserFromTeam(serverUrl, teamId);
-            fetchAllTeams(serverUrl);
+            updateCanJoinTeams(serverUrl);
         }
 
         return {error: undefined};
@@ -317,10 +441,63 @@ export async function handleTeamChange(serverUrl: string, teamId: string) {
     }
 
     if (models.length) {
-        await operator.batchRecords(models);
+        await operator.batchRecords(models, 'handleTeamChange');
     }
     DeviceEventEmitter.emit(Events.TEAM_SWITCH, false);
 
     // Fetch Groups + GroupTeams
     fetchGroupsForTeamIfConstrained(serverUrl, teamId);
+}
+
+export async function handleKickFromTeam(serverUrl: string, teamId: string) {
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const currentTeamId = await getCurrentTeamId(database);
+        if (currentTeamId !== teamId) {
+            return;
+        }
+
+        const currentServer = await getActiveServerUrl();
+        if (currentServer === serverUrl) {
+            const team = await getTeamById(database, teamId);
+            DeviceEventEmitter.emit(Events.LEAVE_TEAM, team?.displayName);
+            await dismissAllModals();
+            await popToRoot();
+        }
+
+        await removeTeamFromTeamHistory(operator, teamId);
+        const teamToJumpTo = await getLastTeam(database, teamId);
+        if (teamToJumpTo) {
+            await handleTeamChange(serverUrl, teamToJumpTo);
+        }
+
+        // Resetting to team select handled by the home screen
+    } catch (error) {
+        logDebug('Failed to kick user from team', error);
+    }
+}
+
+export async function getTeamMembersByIds(serverUrl: string, teamId: string, userIds: string[], fetchOnly?: boolean) {
+    try {
+        const client = NetworkManager.getClient(serverUrl);
+        const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const members = await client.getTeamMembersByIds(teamId, userIds);
+
+        if (!fetchOnly) {
+            const roles = [];
+
+            for (const {roles: memberRoles} of members) {
+                roles.push(...memberRoles.split(' '));
+            }
+
+            fetchRolesIfNeeded(serverUrl, Array.from(new Set(roles)));
+
+            await operator.handleTeamMemberships({teamMemberships: members, prepareRecordsOnly: true});
+        }
+
+        return {members};
+    } catch (error) {
+        forceLogoutIfNecessary(serverUrl, error as ClientError);
+        return {error};
+    }
 }

@@ -3,12 +3,12 @@
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useIntl} from 'react-intl';
-import {Animated, DeviceEventEmitter, Platform, Text, View} from 'react-native';
+import {Animated, DeviceEventEmitter, InteractionManager, Platform, StyleProp, Text, View, ViewStyle} from 'react-native';
 import {RectButton} from 'react-native-gesture-handler';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
+import {Navigation} from 'react-native-navigation';
 
 import {storeMultiServerTutorial} from '@actions/app/global';
-import {appEntry} from '@actions/remote/entry';
 import {doPing} from '@actions/remote/general';
 import {logout} from '@actions/remote/session';
 import {fetchConfigAndLicense} from '@actions/remote/systems';
@@ -17,12 +17,13 @@ import Loading from '@components/loading';
 import ServerIcon from '@components/server_icon';
 import TutorialHighlight from '@components/tutorial_highlight';
 import TutorialSwipeLeft from '@components/tutorial_highlight/swipe_left';
-import {Events} from '@constants';
+import {Events, Screens} from '@constants';
 import {PUSH_PROXY_STATUS_NOT_AVAILABLE, PUSH_PROXY_STATUS_VERIFIED} from '@constants/push_proxy';
 import {useTheme} from '@context/theme';
 import DatabaseManager from '@database/manager';
 import {subscribeServerUnreadAndMentions, UnreadObserverArgs} from '@database/subscription/unreads';
 import {useIsTablet} from '@hooks/device';
+import WebsocketManager from '@managers/websocket_manager';
 import {getServerByIdentifier} from '@queries/app/servers';
 import {dismissBottomSheet} from '@screens/navigation';
 import {canReceiveNotifications} from '@utils/push_proxy';
@@ -58,6 +59,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     badge: {
         left: 18,
         top: -5,
+        borderColor: theme.centerChannelBg,
     },
     button: {
         borderRadius: 8,
@@ -101,7 +103,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
         borderWidth: 1,
         height: 72,
         justifyContent: 'center',
-        width: 45,
+        width: 50,
     },
     unread: {
         top: -2,
@@ -157,7 +159,7 @@ const ServerItem = ({
     const viewRef = useRef<View>(null);
     const [showTutorial, setShowTutorial] = useState(false);
     const [itemBounds, setItemBounds] = useState<TutorialItemBounds>({startX: 0, startY: 0, endX: 0, endY: 0});
-    const database = DatabaseManager.serverDatabases[server.url]?.database;
+
     let displayName = server.displayName;
 
     if (server.url === server.displayName) {
@@ -169,7 +171,7 @@ const ServerItem = ({
         let isUnread = Boolean(threadUnreads);
         for (const myChannel of myChannels) {
             const isMuted = settings?.[myChannel.id]?.mark_unread === 'mention';
-            mentions += myChannel.mentionsCount;
+            mentions += isMuted ? 0 : myChannel.mentionsCount;
             isUnread = isUnread || (myChannel.isUnread && !isMuted);
         }
         mentions += threadMentionCount;
@@ -178,6 +180,7 @@ const ServerItem = ({
     };
 
     const logoutServer = async () => {
+        Navigation.updateProps(Screens.HOME, {extra: undefined});
         await logout(server.url);
 
         if (isActive) {
@@ -190,27 +193,32 @@ const ServerItem = ({
     const removeServer = async () => {
         const skipLogoutFromServer = server.lastActiveAt === 0;
         await dismissBottomSheet();
+        Navigation.updateProps(Screens.HOME, {extra: undefined});
         await logout(server.url, skipLogoutFromServer, true);
     };
 
     const startTutorial = () => {
         viewRef.current?.measureInWindow((x, y, w, h) => {
             const bounds: TutorialItemBounds = {
-                startX: x - 20,
+                startX: x,
                 startY: y,
-                endX: x + w + 20,
+                endX: x + w,
                 endY: y + h,
             };
 
             if (viewRef.current) {
-                setShowTutorial(true);
                 setItemBounds(bounds);
             }
         });
     };
 
+    const onLayout = useCallback(() => {
+        swipeable.current?.close();
+        startTutorial();
+    }, []);
+
     const containerStyle = useMemo(() => {
-        const style = [styles.container];
+        const style: StyleProp<ViewStyle> = [styles.container];
         if (isActive) {
             style.push(styles.active);
         }
@@ -219,7 +227,7 @@ const ServerItem = ({
     }, [isActive]);
 
     const serverStyle = useMemo(() => {
-        const style = [styles.row];
+        const style: StyleProp<ViewStyle> = [styles.row];
         if (!server.lastActiveAt) {
             style.push(styles.offline);
         }
@@ -286,8 +294,9 @@ const ServerItem = ({
         if (server.lastActiveAt) {
             setSwitching(true);
             await dismissBottomSheet();
+            Navigation.updateProps(Screens.HOME, {extra: undefined});
             DatabaseManager.setActiveServerDatabase(server.url);
-            await appEntry(server.url, Date.now());
+            WebsocketManager.initializeClient(server.url);
             return;
         }
 
@@ -339,12 +348,16 @@ const ServerItem = ({
     }, [server.lastActiveAt, isActive]);
 
     useEffect(() => {
-        let time: NodeJS.Timeout;
         if (highlight && !tutorialWatched) {
-            time = setTimeout(startTutorial, 650);
+            if (isTablet) {
+                setShowTutorial(true);
+                return;
+            }
+            InteractionManager.runAfterInteractions(() => {
+                setShowTutorial(true);
+            });
         }
-        return () => clearTimeout(time);
-    }, [highlight, tutorialWatched]);
+    }, [highlight, tutorialWatched, isTablet]);
 
     const serverItem = `server_list.server_item.${server.displayName.replace(/ /g, '_').toLocaleLowerCase()}`;
     const serverItemTestId = isActive ? `${serverItem}.active` : `${serverItem}.inactive`;
@@ -451,9 +464,9 @@ const ServerItem = ({
                 </Text>
             )}
 
-            {Boolean(database) && server.lastActiveAt > 0 &&
+            {server.lastActiveAt > 0 &&
             <WebSocket
-                database={database!}
+                serverUrl={server.url}
             />
             }
             {showTutorial &&
@@ -461,6 +474,8 @@ const ServerItem = ({
                 itemBounds={itemBounds}
                 onDismiss={handleDismissTutorial}
                 onShow={handleShowTutorial}
+                onLayout={onLayout}
+                itemBorderRadius={8}
             >
                 <TutorialSwipeLeft
                     message={intl.formatMessage({id: 'server.tutorial.swipe', defaultMessage: 'Swipe left on a server to see more actions'})}
