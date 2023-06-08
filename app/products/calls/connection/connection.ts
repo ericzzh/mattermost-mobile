@@ -1,28 +1,24 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import {deflate} from 'pako/lib/deflate.js';
-import {DeviceEventEmitter, EmitterSubscription} from 'react-native';
+import {RTCPeer} from '@mattermost/calls/lib';
+import {deflate} from 'pako';
+import {DeviceEventEmitter, type EmitterSubscription, Platform} from 'react-native';
 import InCallManager from 'react-native-incall-manager';
-import {
-    MediaStream,
-    MediaStreamTrack,
-    mediaDevices,
-} from 'react-native-webrtc';
+import {mediaDevices, MediaStream, MediaStreamTrack, RTCPeerConnection} from 'react-native-webrtc';
 
-import RTCPeer from '@calls/rtcpeer';
-import {setSpeakerPhone} from '@calls/state';
+import {setPreferredAudioRoute, setSpeakerphoneOn} from '@calls/actions/calls';
+import {setAudioDeviceInfo} from '@calls/state';
+import {AudioDevice, type AudioDeviceInfo, type AudioDeviceInfoRaw, type CallsConnection} from '@calls/types/calls';
 import {getICEServersConfigs} from '@calls/utils';
 import {WebsocketEvents} from '@constants';
 import {getServerCredentials} from '@init/credentials';
 import NetworkManager from '@managers/network_manager';
-import {logError, logDebug, logWarning} from '@utils/log';
+import {logDebug, logError, logInfo, logWarning} from '@utils/log';
 
 import {WebSocketClient, wsReconnectionTimeoutErr} from './websocket_client';
 
-import type {CallReactionEmoji, CallsConnection} from '@calls/types/calls';
+import type {EmojiData} from '@mattermost/calls/lib/types';
 
 const peerConnectTimeout = 5000;
 
@@ -40,6 +36,7 @@ export async function newConnection(
     let voiceTrack: MediaStreamTrack | null = null;
     let isClosed = false;
     let onCallEnd: EmitterSubscription | null = null;
+    let audioDeviceChanged: EmitterSubscription | null = null;
     const streams: MediaStream[] = [];
 
     const initializeVoiceTrack = async () => {
@@ -97,6 +94,7 @@ export async function newConnection(
         peer?.destroy();
         peer = null;
         InCallManager.stop();
+        audioDeviceChanged?.remove();
 
         if (closeCb) {
             closeCb();
@@ -164,7 +162,7 @@ export async function newConnection(
         }
     };
 
-    const sendReaction = (emoji: CallReactionEmoji) => {
+    const sendReaction = (emoji: EmojiData) => {
         if (ws) {
             ws.send('react', {
                 data: JSON.stringify(emoji),
@@ -201,10 +199,50 @@ export async function newConnection(
             }
         }
 
-        InCallManager.start({media: 'video'});
-        setSpeakerPhone(true);
+        InCallManager.start();
+        InCallManager.stopProximitySensor();
 
-        peer = new RTCPeer({iceServers: iceConfigs || []});
+        let btInitialized = false;
+        let speakerInitialized = false;
+
+        audioDeviceChanged = DeviceEventEmitter.addListener('onAudioDeviceChanged', (data: AudioDeviceInfoRaw) => {
+            const info: AudioDeviceInfo = {
+                availableAudioDeviceList: JSON.parse(data.availableAudioDeviceList),
+                selectedAudioDevice: data.selectedAudioDevice,
+            };
+            setAudioDeviceInfo(info);
+
+            // Auto switch to bluetooth the first time we connect to bluetooth, but not after.
+            if (!btInitialized) {
+                if (info.availableAudioDeviceList.includes(AudioDevice.Bluetooth)) {
+                    setPreferredAudioRoute(AudioDevice.Bluetooth);
+                    btInitialized = true;
+                } else if (!speakerInitialized) {
+                    // If we don't have bluetooth available, default to speakerphone on.
+                    setPreferredAudioRoute(AudioDevice.Speakerphone);
+                    speakerInitialized = true;
+                }
+            }
+        });
+
+        // We default to speakerphone (Android is handled above in the onAudioDeviceChanged handler above).
+        if (Platform.OS === 'ios') {
+            setSpeakerphoneOn(true);
+        }
+
+        peer = new RTCPeer({
+            iceServers: iceConfigs || [],
+            logger: {
+                logDebug,
+                logErr: logError,
+                logWarn: logWarning,
+                logInfo,
+            },
+            webrtc: {
+                MediaStream,
+                RTCPeerConnection,
+            },
+        });
 
         peer.on('offer', (sdp) => {
             logDebug(`local offer, sending: ${JSON.stringify(sdp)}`);

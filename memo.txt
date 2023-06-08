@@ -15,6 +15,7 @@ npx patch-package  --exclude "/build/.*" react-native-notifications
   * %s/com.mattermost.rnbeta/com.ericzzh.mattermost.rnbeta/g
 * delete podfile.lock
 * change 3 targets( mattermost, share, notification) build number to NNN00( last 2 zeros)
+* change bundle version(Mattermost/info) to NNN00
 * check the iCloud.com.mattermost.rnbeta should be iCloud.com.ericzzh.mattermost.rnbeta 
 * check the ios/Mattermost/Mattermost.entitlements, no com.mattermost.rnbeta
 
@@ -24,3 +25,13 @@ DEVELOPMENT_TEAM = 3G95N63PX8;
 PRODUCT_BUNDLE_IDENTIFIER = com.mattermost.rnbeta;
 PRODUCT_BUNDLE_IDENTIFIER = com.ericzzh.mattermost.rnbeta;
 
+23/5/26 merge conflict
+Unmerged paths:
+  (use "git add <file>..." to mark resolution)
+	both modified:   ios/Mattermost.xcodeproj/project.pbxproj
+	both modified:   ios/Mattermost/Info.plist
+	both modified:   ios/MattermostShare/Info.plist
+	both modified:   ios/NotificationService/Info.plist
+	both modified:   ios/Podfile.lock
+	both modified:   package-lock.json
+	both modified:   package.json

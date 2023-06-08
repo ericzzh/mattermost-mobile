@@ -35,6 +35,8 @@ import QuickActions, {MARGIN, SEPARATOR_HEIGHT} from './quick_actions';
 import type {HeaderRightButton} from '@components/navigation_header/header';
 import type {AvailableScreens} from '@typings/screens/navigation';
 
+import {getActiveServerUrl} from '@init/credentials';
+
 type ChannelProps = {
     channelId: string;
     channelType: ChannelType;
@@ -47,7 +49,6 @@ type ChannelProps = {
     memberCount?: number;
     searchTerm: string;
     teamId: string;
-    serverUrl: string;
     callsEnabledInChannel: boolean;
     isTabletView?: boolean;
 };
@@ -55,14 +56,17 @@ type ChannelProps = {
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     customStatusContainer: {
         flexDirection: 'row',
-        height: 13,
+        height: 15,
         left: Platform.select({ios: undefined, default: -2}),
         marginTop: Platform.select({ios: undefined, default: 1}),
     },
-    customStatusEmoji: {marginRight: 5},
+    customStatusEmoji: {
+        marginRight: 5,
+        marginTop: Platform.select({ios: undefined, default: -2}),
+    },
     customStatusText: {
         alignItems: 'center',
-        height: 13,
+        height: 15,
     },
     subtitle: {
         color: changeOpacity(theme.sidebarHeaderTextColor, 0.72),
@@ -77,7 +81,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const ChannelHeader = ({
     channelId, channelType, componentId, customStatus, displayName,
     isCustomStatusEnabled, isCustomStatusExpired, isOwnDirectMessage, memberCount,
-    searchTerm, teamId, callsEnabledInChannel, isTabletView, serverUrl,
+    searchTerm, teamId, callsEnabledInChannel, isTabletView,
 }: ChannelProps) => {
     const intl = useIntl();
     const isTablet = useIsTablet();
@@ -167,6 +171,22 @@ const ChannelHeader = ({
     }, [bottom, channelId, isDMorGM, isTablet, onTitlePress, theme, callsAvailable]);
 
     const onPressLinkToWebApp = useCallback(async () => {
+        const serverUrl = await getActiveServerUrl()
+        if (!serverUrl){
+            Alert.alert(
+                '错误',
+                '无法取到服务器Url',
+                [{
+                    text: '确认',
+                    onPress: async () => {
+                        await dismissAllModals();
+                    },
+                }],
+                {cancelable: false},
+            );
+            logError(`无法取到服务器Url`);
+            return 
+        }
         const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
         const system = await getCommonSystemValues(database);
         const team = await getTeamById(database, teamId);
@@ -207,7 +227,7 @@ const ChannelHeader = ({
             );
             logError(`ChannelHeader: InAppBrowser error ${(error as any).message}`);
         }
-    }, [channelId, teamId, serverUrl]);
+    }, [channelId, teamId]);
 
     const rightButtons: HeaderRightButton[] = useMemo(() => ([
         {
@@ -261,7 +281,6 @@ const ChannelHeader = ({
                         customStatus={customStatus}
                         emojiSize={13}
                         style={styles.customStatusEmoji}
-                        testID='channel_header'
                     />
                     }
                     <View style={styles.customStatusText}>

@@ -21,7 +21,7 @@ import {queryDisplayNamePreferences} from '@queries/servers/preference';
 import {getCommonSystemValues, getConfig, getCurrentChannelId, getCurrentTeamId, getCurrentUserId, getLicense, setCurrentChannelId, setCurrentTeamAndChannelId} from '@queries/servers/system';
 import {getNthLastChannelFromTeam, getMyTeamById, getTeamByName, queryMyTeams, removeChannelFromTeamHistory} from '@queries/servers/team';
 import {getCurrentUser} from '@queries/servers/user';
-import {dismissAllModals, popToRoot} from '@screens/navigation';
+import {dismissAllModalsAndPopToRoot} from '@screens/navigation';
 import EphemeralStore from '@store/ephemeral_store';
 import {setTeamLoading} from '@store/team_load_store';
 import {generateChannelNameFromDisplayName, getDirectChannelName, isDMorGM} from '@utils/channel';
@@ -164,10 +164,12 @@ export async function addMembersToChannel(serverUrl: string, channelId: string, 
 
         if (!fetchOnly) {
             const modelPromises: Array<Promise<Model[]>> = [];
-            modelPromises.push(operator.handleUsers({
-                users,
-                prepareRecordsOnly: true,
-            }));
+            if (users?.length) {
+                modelPromises.push(operator.handleUsers({
+                    users,
+                    prepareRecordsOnly: true,
+                }));
+            }
             modelPromises.push(operator.handleChannelMembership({
                 channelMemberships,
                 prepareRecordsOnly: true,
@@ -429,6 +431,7 @@ export async function fetchChannelStats(serverUrl: string, channelId: string, fe
                     id: channelId,
                     member_count: stats.member_count,
                     pinned_post_count: stats.pinnedpost_count,
+                    files_count: stats.files_count,
                 }];
                 await operator.handleChannelInfo({channelInfos, prepareRecordsOnly: false});
             }
@@ -1420,8 +1423,7 @@ export const handleKickFromChannel = async (serverUrl: string, channelId: string
         if (currentServer?.url === serverUrl) {
             const channel = await getChannelById(database, channelId);
             DeviceEventEmitter.emit(event, channel?.displayName);
-            await dismissAllModals();
-            await popToRoot();
+            await dismissAllModalsAndPopToRoot();
         }
 
         const tabletDevice = await isTablet();

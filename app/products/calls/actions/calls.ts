@@ -6,6 +6,7 @@ import InCallManager from 'react-native-incall-manager';
 import {Navigation} from 'react-native-navigation';
 
 import {forceLogoutIfNecessary} from '@actions/remote/session';
+import {updateThreadFollowing} from '@actions/remote/thread';
 import {fetchUsersByIds} from '@actions/remote/user';
 import {leaveAndJoinWithAlert, needsRecordingWillBePostedAlert, needsRecordingErrorAlert} from '@calls/alerts';
 import {
@@ -31,6 +32,7 @@ import NetworkManager from '@managers/network_manager';
 import {getChannelById} from '@queries/servers/channel';
 import {queryDisplayNamePreferences} from '@queries/servers/preference';
 import {getConfig, getLicense} from '@queries/servers/system';
+import {getThreadById} from '@queries/servers/thread';
 import {getCurrentUser, getUserById} from '@queries/servers/user';
 import {dismissAllModalsAndPopToScreen} from '@screens/navigation';
 import NavigationStore from '@store/navigation_store';
@@ -41,16 +43,14 @@ import {newConnection} from '../connection/connection';
 
 import type {
     ApiResp,
+    AudioDevice,
     Call,
     CallParticipant,
-    CallReactionEmoji,
     CallsConnection,
-    RecordingState,
-    ServerCallState,
-    ServerChannelState,
 } from '@calls/types/calls';
 import type {Client} from '@client/rest';
 import type ClientError from '@client/rest/error';
+import type {CallChannelState, CallRecordingState, CallState, EmojiData} from '@mattermost/calls/lib/types';
 import type {IntlShape} from 'react-intl';
 
 let connection: CallsConnection | null = null;
@@ -94,7 +94,7 @@ export const loadCalls = async (serverUrl: string, userId: string) => {
     } catch (error) {
         return {error};
     }
-    let resp: ServerChannelState[] = [];
+    let resp: CallChannelState[] = [];
     try {
         resp = await client.getCalls() || [];
     } catch (error) {
@@ -134,7 +134,7 @@ export const loadCallForChannel = async (serverUrl: string, channelId: string) =
         return {error};
     }
 
-    let resp: ServerChannelState;
+    let resp: CallChannelState;
     try {
         resp = await client.getCallForChannel(channelId);
     } catch (error) {
@@ -158,7 +158,7 @@ export const loadCallForChannel = async (serverUrl: string, channelId: string) =
     return {data: {call, enabled: resp.enabled}};
 };
 
-const createCallAndAddToIds = (channelId: string, call: ServerCallState, ids: Set<string>) => {
+const createCallAndAddToIds = (channelId: string, call: CallState, ids: Set<string>) => {
     return {
         participants: call.users.reduce((accum, cur, curIdx) => {
             // Add the id to the set of UserModels we want to ensure are loaded.
@@ -266,6 +266,25 @@ export const joinCall = async (
 
     try {
         await connection.waitForPeerConnection();
+
+        // Follow the thread.
+        const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+        if (!database) {
+            return {data: channelId};
+        }
+
+        // If this was a call started by ourselves, then we should have subscribed in the start_call ws handler
+        // (unless we received the start_call ws before the post/thread ws).
+        // If this was us joining an existing call, follow the thread here.
+        const call = getCallsState(serverUrl).calls[channelId];
+        if (call && call.threadId) {
+            const thread = await getThreadById(database, call.threadId);
+            if (thread && !thread.isFollowing) {
+                const channel = await getChannelById(database, channelId);
+                updateThreadFollowing(serverUrl, channel?.teamId || '', call.threadId, true, false);
+            }
+        }
+
         return {data: channelId};
     } catch (e) {
         connection.disconnect();
@@ -279,7 +298,6 @@ export const leaveCall = () => {
         connection.disconnect();
         connection = null;
     }
-    setSpeakerphoneOn(false);
 };
 
 export const leaveCallPopCallScreen = async () => {
@@ -322,7 +340,7 @@ export const unraiseHand = () => {
     }
 };
 
-export const sendReaction = (emoji: CallReactionEmoji) => {
+export const sendReaction = (emoji: EmojiData) => {
     if (connection) {
         connection.sendReaction(emoji);
     }
@@ -331,6 +349,10 @@ export const sendReaction = (emoji: CallReactionEmoji) => {
 export const setSpeakerphoneOn = (speakerphoneOn: boolean) => {
     InCallManager.setForceSpeakerphoneOn(speakerphoneOn);
     setSpeakerPhone(speakerphoneOn);
+};
+
+export const setPreferredAudioRoute = async (audio: AudioDevice) => {
+    return InCallManager.chooseAudioRoute(audio);
 };
 
 export const canEndCall = async (serverUrl: string, channelId: string) => {
@@ -415,7 +437,7 @@ export const startCallRecording = async (serverUrl: string, callId: string) => {
 
     const client = NetworkManager.getClient(serverUrl);
 
-    let data: ApiResp | RecordingState;
+    let data: ApiResp | CallRecordingState;
     try {
         data = await client.startCallRecording(callId);
     } catch (error) {
@@ -433,7 +455,7 @@ export const stopCallRecording = async (serverUrl: string, callId: string) => {
 
     const client = NetworkManager.getClient(serverUrl);
 
-    let data: ApiResp | RecordingState;
+    let data: ApiResp | CallRecordingState;
     try {
         data = await client.stopCallRecording(callId);
     } catch (error) {

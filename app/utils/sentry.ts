@@ -43,22 +43,28 @@ export function initializeSentry() {
         attachStacktrace: isBetaApp, // For Beta, stack traces are automatically attached to all messages logged
     };
 
+    const eventFilter = Array.isArray(Config.SentryOptions?.severityLevelFilter) ? Config.SentryOptions.severityLevelFilter : [];
+    const sentryOptions = {...Config.SentryOptions};
+    Reflect.deleteProperty(sentryOptions, 'severityLevelFilter');
+
     Sentry.init({
         dsn,
         sendDefaultPii: false,
         ...mmConfig,
-        ...Config.SentryOptions,
+        ...sentryOptions,
+        enableCaptureFailedRequests: false,
         integrations: [
             new Sentry.ReactNativeTracing({
 
                 // Pass instrumentation to be used as `routingInstrumentation`
                 routingInstrumentation: new Sentry.ReactNativeNavigationInstrumentation(
                     Navigation,
+                    {enableTabsInstrumentation: false},
                 ),
             }),
         ],
         beforeSend: (event: Event) => {
-            if (isBetaApp || event?.level === 'fatal') {
+            if (isBetaApp || (event?.level && eventFilter.includes(event.level))) {
                 return event;
             }
 

@@ -14,9 +14,9 @@ import {debounce} from '@helpers/api/general';
 import NetworkManager from '@managers/network_manager';
 import {getMembersCountByChannelsId, queryChannelsByTypes} from '@queries/servers/channel';
 import {queryGroupsByNames} from '@queries/servers/group';
-import {getConfig, getCurrentUserId} from '@queries/servers/system';
+import {getConfig, getCurrentUserId, setCurrentUserId} from '@queries/servers/system';
 import {getCurrentUser, prepareUsers, queryAllUsers, queryUsersById, queryUsersByIdsOrUsernames, queryUsersByUsername} from '@queries/servers/user';
-import {logError} from '@utils/log';
+import {logDebug, logError} from '@utils/log';
 import {getDeviceTimezone, isTimezoneEnabled} from '@utils/timezone';
 import {getUserTimezoneProps, removeUserFromList} from '@utils/user';
 
@@ -72,6 +72,22 @@ export const fetchMe = async (serverUrl: string, fetchOnly = false): Promise<MyU
         await forceLogoutIfNecessary(serverUrl, error as ClientErrorProps);
         return {error};
     }
+};
+
+export const refetchCurrentUser = async (serverUrl: string, currentUserId: string | undefined) => {
+    logDebug('re-fetching self');
+    const {user} = await fetchMe(serverUrl);
+    if (!user || currentUserId) {
+        return;
+    }
+
+    logDebug('missing currentUserId');
+    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
+    if (!operator) {
+        logDebug('missing operator');
+        return;
+    }
+    setCurrentUserId(operator, user.id);
 };
 
 export async function fetchProfilesInChannel(serverUrl: string, channelId: string, excludeUserId?: string, options?: GetUsersOptions, fetchOnly = false): Promise<ProfilesInChannelRequest> {
@@ -485,10 +501,12 @@ export const fetchProfiles = async (serverUrl: string, page = 0, perPage: number
         if (!fetchOnly) {
             const currentUserId = await getCurrentUserId(operator.database);
             const toStore = removeUserFromList(currentUserId, users);
-            await operator.handleUsers({
-                users: toStore,
-                prepareRecordsOnly: false,
-            });
+            if (toStore.length) {
+                await operator.handleUsers({
+                    users: toStore,
+                    prepareRecordsOnly: false,
+                });
+            }
         }
 
         return {users};
@@ -517,7 +535,38 @@ export const fetchProfilesInTeam = async (serverUrl: string, teamId: string, pag
         if (!fetchOnly) {
             const currentUserId = await getCurrentUserId(operator.database);
             const toStore = removeUserFromList(currentUserId, users);
+            if (toStore.length) {
+                await operator.handleUsers({
+                    users: toStore,
+                    prepareRecordsOnly: false,
+                });
+            }
+        }
 
+        return {users};
+    } catch (error) {
+        forceLogoutIfNecessary(serverUrl, error as ClientError);
+        return {error};
+    }
+};
+
+export const fetchProfilesNotInChannel = async (
+    serverUrl: string,
+    teamId: string,
+    channelId: string,
+    groupConstrained = false,
+    page = 0,
+    perPage: number = General.PROFILE_CHUNK_SIZE,
+    fetchOnly = false,
+) => {
+    try {
+        const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const client = NetworkManager.getClient(serverUrl);
+        const users = await client.getProfilesNotInChannel(teamId, channelId, groupConstrained, page, perPage);
+
+        if (!fetchOnly && users.length) {
+            const currentUserId = await getCurrentUserId(operator.database);
+            const toStore = removeUserFromList(currentUserId, users);
             await operator.handleUsers({
                 users: toStore,
                 prepareRecordsOnly: false,

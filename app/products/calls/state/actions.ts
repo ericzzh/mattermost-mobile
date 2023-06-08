@@ -1,6 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {updateThreadFollowing} from '@actions/remote/thread';
 import {needsRecordingAlert} from '@calls/alerts';
 import {
     getCallsConfig,
@@ -15,17 +16,21 @@ import {
     setGlobalCallsState,
 } from '@calls/state';
 import {
-    Call,
-    CallReaction,
-    CallsConfig,
-    ChannelsWithCalls,
-    CurrentCall,
+    type AudioDeviceInfo,
+    type Call,
+    type CallsConfigState,
+    type ChannelsWithCalls,
+    type CurrentCall,
     DefaultCall,
     DefaultCurrentCall,
-    ReactionStreamEmoji,
-    RecordingState,
+    type ReactionStreamEmoji,
 } from '@calls/types/calls';
 import {REACTION_LIMIT, REACTION_TIMEOUT} from '@constants/calls';
+import DatabaseManager from '@database/manager';
+import {getChannelById} from '@queries/servers/channel';
+import {getThreadById} from '@queries/servers/thread';
+
+import type {CallRecordingState, UserReactionData} from '@mattermost/calls/lib/types';
 
 export const setCalls = (serverUrl: string, myUserId: string, calls: Dictionary<Call>, enabled: Dictionary<boolean>) => {
     const channelsWithCalls = Object.keys(calls).reduce(
@@ -141,6 +146,12 @@ export const userLeftCall = (serverUrl: string, channelId: string, userId: strin
         participants: {...callsState.calls[channelId].participants},
     };
     delete nextCall.participants[userId];
+
+    // If they were screensharing, remove that.
+    if (nextCall.screenOn === userId) {
+        nextCall.screenOn = '';
+    }
+
     const nextCalls = {...callsState.calls};
     if (Object.keys(nextCall.participants).length === 0) {
         delete nextCalls[channelId];
@@ -177,6 +188,12 @@ export const userLeftCall = (serverUrl: string, channelId: string, userId: strin
         voiceOn,
     };
     delete nextCurrentCall.participants[userId];
+
+    // If they were screensharing, remove that.
+    if (nextCurrentCall.screenOn === userId) {
+        nextCurrentCall.screenOn = '';
+    }
+
     setCurrentCall(nextCurrentCall);
 };
 
@@ -200,7 +217,7 @@ export const myselfLeftCall = () => {
     setCurrentCall(null);
 };
 
-export const callStarted = (serverUrl: string, call: Call) => {
+export const callStarted = async (serverUrl: string, call: Call) => {
     const callsState = getCallsState(serverUrl);
     const nextCalls = {...callsState.calls};
     nextCalls[call.channelId] = call;
@@ -221,6 +238,19 @@ export const callStarted = (serverUrl: string, call: Call) => {
         ...call,
     };
     setCurrentCall(nextCurrentCall);
+
+    // We started the call, and it succeeded, so follow the call thread.
+    const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+    if (!database) {
+        return;
+    }
+
+    // Make sure the post/thread has arrived from the server.
+    const thread = await getThreadById(database, call.threadId);
+    if (thread && !thread.isFollowing) {
+        const channel = await getChannelById(database, call.channelId);
+        updateThreadFollowing(serverUrl, channel?.teamId || '', call.threadId, true, false);
+    }
 };
 
 export const callEnded = (serverUrl: string, channelId: string) => {
@@ -390,7 +420,14 @@ export const setSpeakerPhone = (speakerphoneOn: boolean) => {
     }
 };
 
-export const setConfig = (serverUrl: string, config: Partial<CallsConfig>) => {
+export const setAudioDeviceInfo = (info: AudioDeviceInfo) => {
+    const call = getCurrentCall();
+    if (call) {
+        setCurrentCall({...call, audioDeviceInfo: info});
+    }
+};
+
+export const setConfig = (serverUrl: string, config: Partial<CallsConfigState>) => {
     const callsConfig = getCallsConfig(serverUrl);
     setCallsConfig(serverUrl, {...callsConfig, ...config});
 };
@@ -423,7 +460,7 @@ export const setMicPermissionsErrorDismissed = () => {
     setCurrentCall(nextCurrentCall);
 };
 
-export const userReacted = (serverUrl: string, channelId: string, reaction: CallReaction) => {
+export const userReacted = (serverUrl: string, channelId: string, reaction: UserReactionData) => {
     // Note: Simplification for performance:
     //  If you are not in the call with the reaction, ignore it. There could be many calls ongoing in your
     //  servers, do we want to be tracking reactions and setting timeouts for all those calls? No.
@@ -446,6 +483,7 @@ export const userReacted = (serverUrl: string, channelId: string, reaction: Call
     } else {
         const newReaction: ReactionStreamEmoji = {
             name: reaction.emoji.name,
+            literal: reaction.emoji.literal,
             count: 1,
             latestTimestamp: reaction.timestamp,
         };
@@ -474,7 +512,7 @@ export const userReacted = (serverUrl: string, channelId: string, reaction: Call
     }, REACTION_TIMEOUT);
 };
 
-const userReactionTimeout = (serverUrl: string, channelId: string, reaction: CallReaction) => {
+const userReactionTimeout = (serverUrl: string, channelId: string, reaction: UserReactionData) => {
     const currentCall = getCurrentCall();
     if (currentCall?.channelId !== channelId) {
         return;
@@ -498,7 +536,7 @@ const userReactionTimeout = (serverUrl: string, channelId: string, reaction: Cal
     setCurrentCall(nextCurrentCall);
 };
 
-export const setRecordingState = (serverUrl: string, channelId: string, recState: RecordingState) => {
+export const setRecordingState = (serverUrl: string, channelId: string, recState: CallRecordingState) => {
     const callsState = getCallsState(serverUrl);
     if (!callsState.calls[channelId]) {
         return;
