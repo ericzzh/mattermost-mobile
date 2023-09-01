@@ -4,7 +4,7 @@
 import {FlatList} from '@stream-io/flat-list-mvcp';
 import React, {type ReactElement, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {DeviceEventEmitter, type ListRenderItemInfo, type NativeScrollEvent, type NativeSyntheticEvent, Platform, type StyleProp, StyleSheet, type ViewStyle} from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, {type AnimatedStyle} from 'react-native-reanimated';
 
 import {fetchPosts, fetchPostThread} from '@actions/remote/post';
 import CombinedUserActivity from '@components/post_list/combined_user_activity';
@@ -27,7 +27,7 @@ import type PostModel from '@typings/database/models/servers/post';
 type Props = {
     appsEnabled: boolean;
     channelId: string;
-    contentContainerStyle?: StyleProp<ViewStyle>;
+    contentContainerStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
     currentTimezone: string | null;
     currentUserId: string;
     currentUsername: string;
@@ -65,7 +65,7 @@ type ScrollIndexFailed = {
 };
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
-const keyExtractor = (item: PostListItem | PostListOtherItem) => (item.type === 'post' ? item.value.id : item.value);
+const keyExtractor = (item: PostListItem | PostListOtherItem) => (item.type === 'post' ? item.value.currentPost.id : item.value);
 
 const styles = StyleSheet.create({
     flex: {
@@ -198,7 +198,7 @@ const PostList = ({
 
         const viewableItemsMap = viewableItems.reduce((acc: Record<string, boolean>, {item, isViewable}) => {
             if (isViewable && item.type === 'post') {
-                acc[`${location}-${item.value.id}`] = true;
+                acc[`${location}-${item.value.currentPost.id}`] = true;
             }
             return acc;
         }, {});
@@ -272,7 +272,8 @@ const PostList = ({
                 return (<CombinedUserActivity {...postProps}/>);
             }
             default: {
-                const post = item.value;
+                const post = item.value.currentPost;
+                const {isSaved, nextPost, previousPost} = item.value;
                 const skipSaveddHeader = (location === Screens.THREAD && post.id === rootId);
                 const postProps = {
                     appsEnabled,
@@ -281,12 +282,12 @@ const PostList = ({
                     isPostAcknowledgementEnabled,
                     highlight: highlightedId === post.id,
                     highlightPinnedOrSaved,
-                    isSaved: post.isSaved,
+                    isSaved,
                     key: post.id,
                     location,
-                    nextPost: post.nextPost,
+                    nextPost,
                     post,
-                    previousPost: post.previousPost,
+                    previousPost,
                     rootId,
                     shouldRenderReplyButton,
                     skipSaveddHeader,
@@ -313,7 +314,7 @@ const PostList = ({
             if (highlightedId && orderedPosts && !scrolledToHighlighted.current) {
                 scrolledToHighlighted.current = true;
                 // eslint-disable-next-line max-nested-callbacks
-                const index = orderedPosts.findIndex((p) => p.type === 'post' && p.value.id === highlightedId);
+                const index = orderedPosts.findIndex((p) => p.type === 'post' && p.value.currentPost.id === highlightedId);
                 if (index >= 0 && listRef.current) {
                     listRef.current?.scrollToIndex({
                         animated: true,
@@ -353,6 +354,8 @@ const PostList = ({
                     onScroll={onScroll}
                     onScrollToIndexFailed={onScrollToIndexFailed}
                     onViewableItemsChanged={onViewableItemsChanged}
+
+                    // @ts-expect-error old style ref
                     ref={listRef}
                     removeClippedSubviews={true}
                     renderItem={renderItem}

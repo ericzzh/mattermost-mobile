@@ -121,12 +121,14 @@ interface ClientConfig {
     FeatureFlagCollapsedThreads?: string;
     FeatureFlagGraphQL?: string;
     FeatureFlagPostPriority?: string;
+    ForgotPasswordLink?: string;
     GfycatApiKey: string;
     GfycatApiSecret: string;
     GoogleDeveloperKey: string;
     GuestAccountsEnforceMultifactorAuthentication: string;
     HasImageProxy: string;
     HelpLink: string;
+    HideGuestTags: string;
     IosAppDownloadLink: string;
     IosLatestVersion: string;
     IosMinVersion: string;
@@ -146,6 +148,7 @@ interface ClientConfig {
     MinimumHashtagLength: string;
     OpenIdButtonColor: string;
     OpenIdButtonText: string;
+    PasswordEnableForgotLink: string;
     PasswordMinimumLength: string;
     PasswordRequireLowercase: string;
     PasswordRequireNumber: string;
@@ -159,6 +162,7 @@ interface ClientConfig {
     PersistentNotificationMaxRecipients: string;
     PersistentNotificationInterval: string;
     AllowPersistentNotificationsForGuests: string;
+    PersistentNotificationIntervalMinutes: string;
     PrivacyPolicyLink: string;
     ReportAProblemLink: string;
     RequireEmailVerification: string;

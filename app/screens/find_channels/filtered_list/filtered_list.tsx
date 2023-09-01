@@ -38,7 +38,7 @@ type Props = {
     channelsMatchStart: ChannelModel[];
     currentTeamId: string;
     isCRTEnabled: boolean;
-    keyboardHeight: number;
+    keyboardOverlap: number;
     loading: boolean;
     onLoading: (loading: boolean) => void;
     restrictDirectMessage: boolean;
@@ -75,7 +75,7 @@ const sortByUserOrChannel = <T extends Channel |UserModel>(locale: string, teamm
 
 const FilteredList = ({
     archivedChannels, close, channelsMatch, channelsMatchStart, currentTeamId,
-    isCRTEnabled, keyboardHeight, loading, onLoading, restrictDirectMessage, showTeamName,
+    isCRTEnabled, keyboardOverlap, loading, onLoading, restrictDirectMessage, showTeamName,
     teamIds, teammateDisplayNameSetting, term, usersMatch, usersMatchStart, testID,
 }: Props) => {
     const bounce = useRef<DebouncedFunc<() => void>>();
@@ -83,7 +83,7 @@ const FilteredList = ({
     const serverUrl = useServerUrl();
     const theme = useTheme();
     const {locale, formatMessage} = useIntl();
-    const flatListStyle = useMemo(() => ({flexGrow: 1, paddingBottom: keyboardHeight}), [keyboardHeight]);
+    const flatListStyle = useMemo(() => ({flexGrow: 1, paddingBottom: keyboardOverlap}), [keyboardOverlap]);
     const [remoteChannels, setRemoteChannels] = useState<RemoteChannels>({archived: [], startWith: [], matches: []});
 
     const totalLocalResults = channelsMatchStart.length + channelsMatch.length + usersMatchStart.length;
@@ -143,9 +143,9 @@ const FilteredList = ({
     };
 
     const onJoinChannel = useCallback(async (c: Channel | ChannelModel) => {
-        const {error} = await joinChannelIfNeeded(serverUrl, c.id);
+        const res = await joinChannelIfNeeded(serverUrl, c.id);
         const displayName = 'display_name' in c ? c.display_name : c.displayName;
-        if (error) {
+        if ('error' in res) {
             Alert.alert(
                 '',
                 formatMessage({

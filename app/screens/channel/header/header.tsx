@@ -3,39 +3,31 @@
 
 import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
-import {Alert} from 'react-native';
-import {InAppBrowser} from 'react-native-inappbrowser-reborn';
 import {Keyboard, Platform, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import {logError, logInfo} from '@app/utils/log';
 import {CHANNEL_ACTIONS_OPTIONS_HEIGHT} from '@components/channel_actions/channel_actions';
 import CompassIcon from '@components/compass_icon';
 import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
 import NavigationHeader from '@components/navigation_header';
 import {ITEM_HEIGHT} from '@components/option_item';
+import OtherMentionsBadge from '@components/other_mentions_badge';
 import RoundedHeaderContext from '@components/rounded_header_context';
 import {General, Screens} from '@constants';
 import {useTheme} from '@context/theme';
-import DatabaseManager from '@database/manager';
 import {useIsTablet} from '@hooks/device';
 import {useDefaultHeaderHeight} from '@hooks/header';
-import {getCommonSystemValues} from '@queries/servers/system';
-import {getTeamById} from '@queries/servers/team';
-import {bottomSheet, popTopScreen, showModal, dismissAllModals} from '@screens/navigation';
+import {bottomSheet, popTopScreen, showModal} from '@screens/navigation';
 import {isTypeDMorGM} from '@utils/channel';
 import {bottomSheetSnapPoint} from '@utils/helpers';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
-import OtherMentionsBadge from './other_mentions_badge';
 import QuickActions, {MARGIN, SEPARATOR_HEIGHT} from './quick_actions';
 
 import type {HeaderRightButton} from '@components/navigation_header/header';
 import type {AvailableScreens} from '@typings/screens/navigation';
-
-import {getActiveServerUrl} from '@init/credentials';
 
 type ChannelProps = {
     channelId: string;
@@ -170,71 +162,7 @@ const ChannelHeader = ({
         });
     }, [bottom, channelId, isDMorGM, isTablet, onTitlePress, theme, callsAvailable]);
 
-    const onPressLinkToWebApp = useCallback(async () => {
-        const serverUrl = await getActiveServerUrl()
-        if (!serverUrl){
-            Alert.alert(
-                '错误',
-                '无法取到服务器Url',
-                [{
-                    text: '确认',
-                    onPress: async () => {
-                        await dismissAllModals();
-                    },
-                }],
-                {cancelable: false},
-            );
-            logError(`无法取到服务器Url`);
-            return 
-        }
-        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
-        const system = await getCommonSystemValues(database);
-        const team = await getTeamById(database, teamId);
-        if (!team) {
-            logError(`ChannelHeader: Can not find team id: ${teamId}`);
-            return;
-        }
-
-        const webAppUrl = `${serverUrl}/${team.name}/channels/${system.currentChannelId}`;
-
-        logInfo(`WebAppUrl:${webAppUrl}`);
-
-        try {
-            if (await InAppBrowser.isAvailable()) {
-                await InAppBrowser.open(webAppUrl, {
-                    forceCloseOnRedirection: false,
-                    showInRecents: true,
-                    browserPackage: Platform.select({android: 'com.android.chrome', default: ''}),
-                });
-            } else {
-                logError('ChannelHeader: InAppBrowser is not available');
-            }
-        } catch (error) {
-            const errtext = Platform.select({
-                android: `打开网页应用失败，请确认是否安装Chrome。如已安装，请联系系统管理员。\n错误信息:${(error as any).message}`,
-                default: `打开网页应用失败，请联系系统管理员。\n错误信息:${(error as any).message}`,
-            });
-            Alert.alert(
-                '错误',
-                errtext,
-                [{
-                    text: '确认',
-                    onPress: async () => {
-                        await dismissAllModals();
-                    },
-                }],
-                {cancelable: false},
-            );
-            logError(`ChannelHeader: InAppBrowser error ${(error as any).message}`);
-        }
-    }, [channelId, teamId]);
-
     const rightButtons: HeaderRightButton[] = useMemo(() => ([
-        {
-            iconName: 'link-variant',
-            onPress: onPressLinkToWebApp,
-            buttonType: 'opacity',
-        },
 
         // {
         //     iconName: 'magnify',

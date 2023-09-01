@@ -15,7 +15,7 @@ npx patch-package  --exclude "/build/.*" react-native-notifications
   * %s/com.mattermost.rnbeta/com.ericzzh.mattermost.rnbeta/g
 * delete podfile.lock
 * change 3 targets( mattermost, share, notification) build number to NNN00( last 2 zeros)
-* change bundle version(Mattermost/info) to NNN00
+* change bundle version(Mattermost/info *** in the info(plist) fields. not in targets field *** ) to NNN00
 * check the iCloud.com.mattermost.rnbeta should be iCloud.com.ericzzh.mattermost.rnbeta 
 * check the ios/Mattermost/Mattermost.entitlements, no com.mattermost.rnbeta
 

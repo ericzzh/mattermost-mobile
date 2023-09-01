@@ -61,7 +61,7 @@ const EditProfile = ({
         username: currentUser?.username || '',
     });
     const [canSave, setCanSave] = useState(false);
-    const [error, setError] = useState<ErrorText | undefined>();
+    const [error, setError] = useState<unknown>();
     const [updating, setUpdating] = useState(false);
 
     const buttonText = intl.formatMessage({id: 'mobile.account.settings.save', defaultMessage: 'Save'});
@@ -138,7 +138,7 @@ const EditProfile = ({
                 const now = Date.now();
                 const {error: uploadError} = await uploadUserProfileImage(serverUrl, localPath);
                 if (uploadError) {
-                    resetScreen(uploadError as Error);
+                    resetScreen(uploadError);
                     return;
                 }
                 updateLocalUser(serverUrl, {last_picture_update: now});
@@ -149,15 +149,14 @@ const EditProfile = ({
             if (hasUpdateUserInfo.current) {
                 const {error: reqError} = await updateMe(serverUrl, newUserInfo);
                 if (reqError) {
-                    resetScreen(reqError as Error);
+                    resetScreen(reqError);
                     return;
                 }
             }
 
             close();
-            return;
         } catch (e) {
-            resetScreen(e as Error);
+            resetScreen(e);
         }
     }), [userInfo, enableSaveButton]);
 
@@ -182,8 +181,8 @@ const EditProfile = ({
         enableSaveButton(didChange);
     }, [userInfo, currentUser, enableSaveButton]);
 
-    const resetScreen = useCallback((resetError: Error) => {
-        setError(resetError?.message);
+    const resetScreen = useCallback((resetError: unknown) => {
+        setError(resetError);
         Keyboard.dismiss();
         setUpdating(false);
         enableSaveButton(true);
